@@ -193,7 +193,8 @@ button {
 .auth-panel-wrap {
   display: grid;
   min-width: 0;
-  place-items: center;
+  align-items: center;
+  justify-items: start;
   padding: 32px;
 }
 
@@ -201,6 +202,7 @@ button {
   position: relative;
   width: min(100%, 524px);
   min-height: 498px;
+  margin-left: 48px;
   padding: 31px 44px 20px;
   background: #d9d9d9;
 }
@@ -309,6 +311,11 @@ button {
   gap: 25px;
 }
 
+.register-columns-single {
+  grid-template-columns: minmax(0, 620px);
+  justify-content: center;
+}
+
 .register-column {
   display: grid;
   align-content: start;
@@ -316,6 +323,13 @@ button {
   padding: 22px 30px;
   border-radius: 8px;
   background: #f0f0f0;
+}
+
+.registration-security-note {
+  margin: 0;
+  color: var(--gray-text);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .register-field {
@@ -1222,7 +1236,9 @@ tbody small {
   }
 
   .auth-panel {
+    width: min(100%, 508px);
     min-height: auto;
+    margin-left: 0;
     padding: 28px 24px;
   }
 

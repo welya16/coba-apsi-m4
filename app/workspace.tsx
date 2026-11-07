@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 type Role = "Pelanggan" | "Admin" | "Owner" | "Produksi" | "Pengiriman";
 type Screen = "welcome" | "login" | "register" | "app";
@@ -18,10 +18,19 @@ type Product = {
 
 type Customer = {
   id: string;
+  accountId: string;
   name: string;
   username: string;
   phone: string;
   postalCode: string;
+  gender: string;
+  street: string;
+  rt: string;
+  rw: string;
+  village: string;
+  district: string;
+  city: string;
+  province: string;
 };
 
 type Order = {
@@ -32,9 +41,22 @@ type Order = {
   status: string;
   payment: string;
   date: string;
+  quantity: number;
+  paymentId?: string;
+  productionId?: string;
+  shipmentId?: string;
+};
+type OrderDraft = {
+  product: string;
+  quantity: number;
+  size: string;
+  delivery: string;
+  specification: string;
 };
 
 const roles: Role[] = ["Pelanggan", "Admin", "Owner", "Produksi", "Pengiriman"];
+type ApiUser = { id_akun: string; username: string; nama_lengkap: string; role: string };
+type ApiRecord = Record<string, unknown>;
 
 const navigation: Record<Role, string[]> = {
   Pelanggan: [
@@ -74,35 +96,160 @@ const navigation: Record<Role, string[]> = {
   ],
 };
 
-const initialProducts: Product[] = [
-  { id: "PRD-001", name: "Polo T-Shirt", category: "Polo T-Shirt", price: 70000, material: "Lacoste Pique", status: "Tersedia" },
-  { id: "PRD-002", name: "Jacket", category: "Jacket", price: 130000, material: "Fleece", status: "Tersedia" },
-  { id: "PRD-003", name: "Kaos", category: "Kaos", price: 50000, material: "Cotton Combed 30s", status: "Tersedia" },
-  { id: "PRD-004", name: "Kemeja", category: "Kemeja", price: 110000, material: "Katun Oxford", status: "Tersedia" },
-];
-
-const initialCustomers: Customer[] = [
-  { id: "PLG-001", name: "Tiva Restihan", username: "tiva", phone: "081329874512", postalCode: "25115" },
-  { id: "PLG-002", name: "Welya Putri Valensya", username: "welya", phone: "085742106683", postalCode: "26181" },
-  { id: "PLG-003", name: "Rhadya", username: "rhadya", phone: "081267340918", postalCode: "27118" },
-  { id: "PLG-004", name: "Divya", username: "divya", phone: "082171925564", postalCode: "26211" },
-  { id: "PLG-005", name: "Lovanda", username: "lovanda", phone: "085376208471", postalCode: "27316" },
-];
-
-const initialOrders: Order[] = [
-  { id: "PSN-20261001-01", customer: "Tiva Restihan", product: "Kaos", total: 1200000, status: "Selesai", payment: "Terverifikasi", date: "1 Okt 2026" },
-  { id: "PSN-20261003-02", customer: "Welya Putri Valensya", product: "Polo T-Shirt", total: 840000, status: "Dikirim", payment: "Terverifikasi", date: "3 Okt 2026" },
-  { id: "PSN-20261008-03", customer: "Rhadya", product: "Jacket", total: 1300000, status: "Diproses", payment: "Terverifikasi", date: "8 Okt 2026" },
-  { id: "PSN-20261014-04", customer: "Divya", product: "Kemeja", total: 2200000, status: "Menunggu verifikasi", payment: "Menunggu verifikasi", date: "14 Okt 2026" },
-  { id: "PSN-20261016-05", customer: "Lovanda", product: "Kaos", total: 1800000, status: "Menunggu pembayaran", payment: "Menunggu pembayaran", date: "16 Okt 2026" },
-];
-
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
     maximumFractionDigits: 0,
   }).format(amount);
+
+async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: {
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
+    },
+  });
+  const result = await response.json().catch(() => null) as { error?: string } | T | null;
+  if (!response.ok) {
+    const message = result && typeof result === "object" && "error" in result
+      ? String(result.error)
+      : `Permintaan gagal (${response.status}).`;
+    throw new Error(message);
+  }
+  return result as T;
+}
+
+function mapRole(role: string): Role | null {
+  const normalized = role.toLowerCase();
+  if (normalized === "pelanggan") return "Pelanggan";
+  if (normalized === "admin") return "Admin";
+  if (normalized === "owner") return "Owner";
+  if (normalized === "produksi") return "Produksi";
+  if (normalized === "kurir" || normalized === "pengiriman") return "Pengiriman";
+  return null;
+}
+
+function mapProduct(record: ApiRecord): Product {
+  return {
+    id: String(record.id_produk),
+    name: String(record.nama_produk),
+    category: String(record.jenis),
+    price: Number(record.harga_dasar),
+    material: String(record.bahan ?? ""),
+    status: String(record.status_tersedia ?? "Tersedia"),
+  };
+}
+
+function mapCustomer(record: ApiRecord): Customer {
+  const account = record.akun as ApiRecord | null;
+  const addresses = Array.isArray(record.alamat) ? record.alamat as ApiRecord[] : [];
+  const address = addresses[0];
+  const postal = address?.kode_pos_alamat_kode_posTokode_pos as ApiRecord | null;
+  return {
+    id: String(record.id_pelanggan),
+    accountId: String(record.id_akun),
+    name: String(account?.nama_lengkap ?? ""),
+    username: String(account?.username ?? ""),
+    phone: String(record.no_hp ?? ""),
+    postalCode: String(address?.kode_pos ?? ""),
+    gender: String(record.jenis_kelamin ?? ""),
+    street: String(address?.alamat_jalan ?? ""),
+    rt: String(address?.alamat_rt ?? ""),
+    rw: String(address?.alamat_rw ?? ""),
+    village: String(postal?.kelurahan ?? ""),
+    district: String(postal?.kecamatan ?? ""),
+    city: String(postal?.kota ?? ""),
+    province: String(postal?.provinsi ?? ""),
+  };
+}
+
+function mapOrder(
+  record: ApiRecord,
+  customerNames: Map<string, string>,
+  productionByOrder: Map<string, ApiRecord>,
+  shipmentByOrder: Map<string, ApiRecord>,
+  role: Role,
+): Order {
+  const details = Array.isArray(record.detail_pesanan) ? record.detail_pesanan as ApiRecord[] : [];
+  const customer = record.pelanggan as ApiRecord | null;
+  const payments = Array.isArray(record.pembayaran) ? record.pembayaran as ApiRecord[] : [];
+  const payment = payments.find((item) => item.status_pembayaran === "Menunggu Verifikasi") ?? payments[0];
+  const paymentStatus = String(payment?.status_pembayaran ?? "");
+  const orderId = String(record.id_pesanan);
+  const production = productionByOrder.get(orderId);
+  const shipment = shipmentByOrder.get(orderId);
+  const date = record.tgl_pesan ? new Date(String(record.tgl_pesan)).toLocaleDateString("id-ID") : "";
+  return {
+    id: orderId,
+    customer: String(customerNames.get(String(record.id_pelanggan ?? "")) ?? customer?.id_pelanggan ?? "Pelanggan"),
+    product: details.map((detail) => String((detail.produk as ApiRecord | null)?.nama_produk ?? "Produk")).join(", ") || "Belum ada detail",
+    total: Number(record.total_harga ?? 0),
+    status: String(
+      (role === "Pengiriman" ? shipment?.status_pengiriman : undefined) ??
+      (role === "Produksi" ? production?.status_produksi : undefined) ??
+      record.status_pesanan ?? "",
+    ),
+    payment: paymentStatus || "Belum dibayar",
+    date,
+    quantity: details.reduce((sum, detail) => sum + Number(detail.jumlah ?? 0), 0),
+    paymentId: payment ? String(payment.id_pembayaran) : undefined,
+    productionId: production ? String(production.id_produksi) : undefined,
+    shipmentId: shipment ? String(shipment.id_pengiriman) : undefined,
+  };
+}
+
+async function loadWorkspaceData(role: Role) {
+  const failures: string[] = [];
+  async function load<T>(path: string, fallback: T): Promise<T> {
+    try {
+      return await apiRequest<T>(path);
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : "Gagal memuat data.");
+      return fallback;
+    }
+  }
+  const [productResult, customerResult, orderResult, productionResult, shipmentResult] = await Promise.all([
+    load<{ data: ApiRecord[] }>("/api/products", { data: [] }),
+    role === "Produksi" || role === "Pengiriman"
+      ? Promise.resolve({ data: [] as ApiRecord[] })
+      : load<{ data: ApiRecord[] }>("/api/customers", { data: [] }),
+    load<{ data: ApiRecord[] }>("/api/orders", { data: [] }),
+    role === "Admin" || role === "Owner" || role === "Produksi"
+      ? load<{ data: ApiRecord[] }>("/api/production", { data: [] })
+      : Promise.resolve({ data: [] as ApiRecord[] }),
+    role === "Pelanggan" || role === "Admin" || role === "Owner" || role === "Pengiriman"
+      ? load<{ data: ApiRecord[] }>("/api/shipments", { data: [] })
+      : Promise.resolve({ data: [] as ApiRecord[] }),
+  ]);
+  const customerNames = new Map(customerResult.data.map((customer) => [
+    String(customer.id_pelanggan),
+    String((customer.akun as ApiRecord | null)?.nama_lengkap ?? ""),
+  ]));
+  const productionByOrder = new Map(productionResult.data.map((record) => [
+    String(record.id_pesanan),
+    record,
+  ]));
+  const shipmentByOrder = new Map(shipmentResult.data.map((record) => [
+    String(record.id_pesanan),
+    record,
+  ]));
+  return {
+    products: productResult.data.map(mapProduct),
+    customers: customerResult.data.map(mapCustomer),
+    orders: orderResult.data.map((record) => mapOrder(
+      record,
+      customerNames,
+      productionByOrder,
+      shipmentByOrder,
+      role,
+    )),
+    failures,
+  };
+}
 
 function DatabaseIcon() {
   return (
@@ -174,25 +321,32 @@ function Login({
   role,
   onBack,
   onRegister,
-  onPreview,
+  onLogin,
 }: {
   role: Role;
   onBack: () => void;
   onRegister: () => void;
-  onPreview: (username: string) => void;
+  onLogin: (username: string, password: string) => Promise<void>;
 }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!username.trim() || !password) {
       setError("Username dan kata sandi wajib diisi.");
       return;
     }
-    setError("");
-    onPreview(username.trim());
+    setSubmitting(true);
+    try {
+      await onLogin(username.trim(), password);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "Login gagal.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -229,76 +383,89 @@ function Login({
             onChange={(event) => setPassword(event.target.value)}
           />
           {error && <p className="auth-error" role="alert">{error}</p>}
-          <button className="auth-submit" type="submit">
-            Masuk
+          <button className="auth-submit" type="submit" disabled={submitting}>
+            {submitting ? "Memeriksa..." : "Masuk"}
           </button>
-          {role === "Pelanggan" && (
-            <button className="auth-submit" type="button" onClick={onRegister}>
-              Daftar
-            </button>
-          )}
-          <p className="auth-preview-note">
-            Preview UI: autentikasi belum terhubung ke layanan backend.
-          </p>
+          <button className="auth-submit" type="button" onClick={onRegister}>
+            Daftar
+          </button>
         </form>
       </section>
     </main>
   );
 }
 
-function Registration({ onBack }: { onBack: () => void }) {
+function Registration({ role, onBack, onRegistered }: { role: Role; onBack: () => void; onRegistered: (user: ApiUser) => Promise<void> }) {
   const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const requiredFields = Array.from(event.currentTarget.elements).filter(
-      (element): element is HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement =>
-        (element instanceof HTMLInputElement ||
-          element instanceof HTMLSelectElement ||
-          element instanceof HTMLTextAreaElement) &&
-        element.required,
-    );
-    if (requiredFields.some((field) => !field.value.trim())) {
-      setMessage("Lengkapi semua data yang wajib diisi.");
-      return;
+    setSubmitting(true);
+    setMessage("");
+    const formData = new FormData(event.currentTarget);
+    const [addressRt, addressRw] = String(formData.get("rtrw") ?? "").split("/");
+    try {
+      const result = await apiRequest<{ user: ApiUser }>("/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          role: role.toLowerCase(),
+          nama_lengkap: formData.get("name"),
+          username: formData.get("username"),
+          password: formData.get("password"),
+          ...(role === "Pelanggan"
+            ? {
+                jenis_kelamin: formData.get("gender") || null,
+                no_hp: formData.get("phone"),
+                alamat_jalan: formData.get("street"),
+                alamat_rt: addressRt?.trim() || null,
+                alamat_rw: addressRw?.trim() || null,
+                kode_pos: formData.get("postalCode") || null,
+              }
+            : { registration_code: formData.get("registrationCode") }),
+        }),
+      });
+      await onRegistered(result.user);
+    } catch (registrationError) {
+      setMessage(registrationError instanceof Error ? registrationError.message : "Pendaftaran gagal.");
+    } finally {
+      setSubmitting(false);
     }
-    setMessage(
-      "Formulir valid. Pendaftaran belum tersimpan karena backend belum tersedia.",
-    );
   }
 
   return (
     <main className="register-screen">
       <div className="register-photo" />
       <form className="register-form" onSubmit={submit}>
-        <h1>Daftar</h1>
-        <div className="register-columns">
+        <h1>Daftar {role}</h1>
+        <p className="auth-role">Buat akun {role}</p>
+        <div className={`register-columns${role === "Pelanggan" ? "" : " register-columns-single"}`}>
           <section className="register-column">
-            <RegistrationField label="Nama Lengkap" name="name" />
-            <RegistrationField label="Username" name="username" />
+            <RegistrationField label="Nama Lengkap" name="name" maxLength={100} />
+            <RegistrationField label="Username" name="username" minLength={3} maxLength={50} autoComplete="username" />
+            <RegistrationField label="Kata sandi (minimal 10 karakter)" name="password" type="password" minLength={10} maxLength={128} autoComplete="new-password" />
+            {role !== "Pelanggan" && <>
+              <RegistrationField label={`Kode undangan ${role} dari administrator`} name="registrationCode" type="password" maxLength={128} autoComplete="off" />
+              <p className="registration-security-note">Akun staf memerlukan kode undangan khusus peran. Minta kode kepada administrator.</p>
+            </>}
+          </section>
+          {role === "Pelanggan" && <section className="register-column">
             <label className="register-field">
               <span>Jenis Kelamin</span>
-              <select name="gender" defaultValue="">
+              <select name="gender" defaultValue="" required>
                 <option value="" disabled>Pilih jenis kelamin</option>
                 <option>Perempuan</option>
                 <option>Laki-laki</option>
               </select>
             </label>
-            <RegistrationField label="Nomor Telepon" name="phone" type="tel" />
-            <RegistrationField label="Email (opsional)" name="email" type="email" required={false} />
-            <RegistrationField label="Kata sandi" name="password" type="password" />
-          </section>
-          <section className="register-column">
-            <RegistrationField label="Jalan/nomor" name="street" />
-            <RegistrationField label="RT/RW" name="rtrw" />
-            <RegistrationField label="Kelurahan" name="village" />
-            <RegistrationField label="Kecamatan" name="district" />
-            <RegistrationField label="Kota" name="city" />
-            <RegistrationField label="Provinsi" name="province" />
-          </section>
+            <RegistrationField label="Nomor Telepon" name="phone" type="tel" maxLength={20} autoComplete="tel" />
+            <RegistrationField label="Jalan/nomor" name="street" maxLength={255} autoComplete="street-address" />
+            <RegistrationField label="RT/RW" name="rtrw" required={false} />
+            <RegistrationField label="Kode Pos (opsional)" name="postalCode" required={false} maxLength={10} autoComplete="postal-code" />
+          </section>}
         </div>
         {message && <p className="register-message" role="status">{message}</p>}
-        <button className="register-submit" type="submit">Daftar</button>
+        <button className="register-submit" type="submit" disabled={submitting}>{submitting ? "Menyimpan..." : "Daftar"}</button>
       </form>
       <button className="register-signin" onClick={onBack} type="button">
         Sudah punya akun? Masuk
@@ -312,16 +479,22 @@ function RegistrationField({
   name,
   type = "text",
   required = true,
+  minLength,
+  maxLength,
+  autoComplete,
 }: {
   label: string;
   name: string;
   type?: string;
   required?: boolean;
+  minLength?: number;
+  maxLength?: number;
+  autoComplete?: string;
 }) {
   return (
     <label className="register-field">
       <span>{label}</span>
-      <input name={name} type={type} required={required} />
+      <input name={name} type={type} required={required} minLength={minLength} maxLength={maxLength} autoComplete={autoComplete} />
     </label>
   );
 }
@@ -417,16 +590,20 @@ function Workspace() {
   const [screen, setScreen] = useState<Screen>("welcome");
   const [role, setRole] = useState<Role>("Pelanggan");
   const [username, setUsername] = useState("");
+  const [apiUser, setApiUser] = useState<ApiUser | null>(null);
   const [section, setSection] = useState("Dashboard");
-  const [products, setProducts] = useState(initialProducts);
-  const [customers, setCustomers] = useState(initialCustomers);
-  const [orders, setOrders] = useState(initialOrders);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [editingId, setEditingId] = useState("");
+  const [orderDraft, setOrderDraft] = useState<OrderDraft | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const userName = username || (role === "Owner" ? "Nabila" : role === "Pelanggan" ? "Tiva Restihan" : role);
+  const userName = apiUser?.nama_lengkap ?? username;
+  const customerProfile = customers.find((customer) => customer.accountId === apiUser?.id_akun);
   const filteredProducts = useMemo(
     () => products.filter((item) => `${item.id} ${item.name} ${item.material}`.toLowerCase().includes(search.toLowerCase())),
     [products, search],
@@ -442,68 +619,212 @@ function Workspace() {
     setScreen("login");
   }
 
+  const refreshData = useCallback(async (currentRole: Role) => {
+    const data = await loadWorkspaceData(currentRole);
+    setProducts(data.products);
+    setCustomers(data.customers);
+    setOrders(data.orders);
+    if (data.failures.length) {
+      setNotice(`Sebagian data gagal dimuat: ${data.failures.join(" ")}`);
+    }
+  }, []);
+
+  const activateUser = useCallback(async (user: ApiUser) => {
+    const nextRole = mapRole(user.role);
+    if (!nextRole) throw new Error("Peran akun tidak didukung oleh aplikasi.");
+    setApiUser(user);
+    setUsername(user.username);
+    setRole(nextRole);
+    setSection(navigation[nextRole][0]);
+    setScreen("app");
+    setNotice("");
+    await refreshData(nextRole);
+  }, [refreshData]);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest<{ user: ApiUser | null }>("/api/auth/session")
+      .then(async ({ user }) => {
+        if (active && user) await activateUser(user);
+      })
+      .catch((error: unknown) => {
+        if (active) setNotice(error instanceof Error ? error.message : "Sesi login gagal dimuat.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [activateUser]);
+
+  async function login(loginUsername: string, password: string) {
+    const result = await apiRequest<{ user: ApiUser }>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: loginUsername, password, role: role.toLowerCase() }),
+    });
+    await activateUser(result.user);
+  }
+
+  async function logout() {
+    try {
+      await apiRequest("/api/auth/logout", { method: "POST" });
+      setApiUser(null);
+      setUsername("");
+      setProducts([]);
+      setCustomers([]);
+      setOrders([]);
+      setNotice("");
+      setScreen("welcome");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Gagal keluar dari akun.");
+    }
+  }
+
   function openDialog(type: Exclude<Dialog, null>, id = "") {
     setEditingId(id);
+    setOrderDraft(null);
     setDialog(type);
   }
 
-  function saveDialog(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    if (dialog === "product") {
-      const updated: Product = {
-        id: editingId || `PRD-${String(products.length + 1).padStart(3, "0")}`,
-        name: String(data.get("name") ?? "").trim(),
-        category: String(data.get("category") ?? "").trim(),
-        price: Number(data.get("price")),
-        material: String(data.get("material") ?? "").trim(),
-        status: "Tersedia",
-      };
-      setProducts((current) =>
-        editingId ? current.map((item) => item.id === editingId ? updated : item) : [...current, updated],
-      );
-      setNotice(editingId ? "Data produk diperbarui pada sesi preview." : "Produk ditambahkan pada sesi preview.");
-    } else if (dialog === "customer") {
-      const updated: Customer = {
-        id: editingId || `PLG-${String(customers.length + 1).padStart(3, "0")}`,
-        name: String(data.get("name") ?? "").trim(),
-        username: String(data.get("username") ?? "").trim(),
-        phone: String(data.get("phone") ?? "").trim(),
-        postalCode: String(data.get("postalCode") ?? "").trim(),
-      };
-      setCustomers((current) =>
-        editingId ? current.map((item) => item.id === editingId ? updated : item) : [...current, updated],
-      );
-      setNotice(editingId ? "Data pelanggan diperbarui pada sesi preview." : "Pelanggan ditambahkan pada sesi preview.");
-    } else if (dialog === "order") {
-      const selectedProduct = products.find((item) => item.id === String(data.get("product")));
-      if (selectedProduct) {
-        const order: Order = {
-          id: `PSN-202611${String(orders.length + 1).padStart(2, "0")}-0${orders.length + 1}`,
-          customer: userName,
-          product: selectedProduct.name,
-          total: selectedProduct.price * Number(data.get("quantity")),
-          status: "Menunggu konfirmasi",
-          payment: "Belum dibayar",
-          date: "Hari ini",
-        };
-        setOrders((current) => [order, ...current]);
-        setNotice("Pesanan dibuat pada sesi preview dan belum dikirim ke backend.");
-      }
-    }
-    setDialog(null);
+  function openOrderDialog(draft?: OrderDraft) {
     setEditingId("");
+    setOrderDraft(draft ?? null);
+    setDialog("order");
   }
 
-  function updateOrder(id: string, field: "status" | "payment", value: string) {
-    setOrders((current) =>
-      current.map((order) => order.id === id ? { ...order, [field]: value } : order),
-    );
-    setNotice("Perubahan tersimpan pada sesi preview.");
+  async function saveDialog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setBusy(true);
+    try {
+      if (dialog === "product") {
+        const body = {
+          nama_produk: String(data.get("name") ?? "").trim(),
+          jenis: String(data.get("category") ?? "").trim(),
+          harga_dasar: Number(data.get("price")),
+          bahan: String(data.get("material") ?? "").trim(),
+          status_tersedia: "Tersedia",
+        };
+        await apiRequest(editingId ? `/api/products/${encodeURIComponent(editingId)}` : "/api/products", {
+          method: editingId ? "PATCH" : "POST",
+          body: JSON.stringify(body),
+        });
+        setNotice(editingId ? "Data produk berhasil diperbarui." : "Produk berhasil ditambahkan.");
+      } else if (dialog === "customer") {
+        const street = String(data.get("street") ?? "").trim();
+        const body = {
+          nama_lengkap: String(data.get("name") ?? "").trim(),
+          username: String(data.get("username") ?? "").trim(),
+          no_hp: String(data.get("phone") ?? "").trim(),
+          ...(street ? {
+            alamat_jalan: street,
+            alamat_rt: String(data.get("rt") ?? "").trim() || null,
+            alamat_rw: String(data.get("rw") ?? "").trim() || null,
+          } : {}),
+          ...(String(data.get("postalCode") ?? "").trim()
+            ? { kode_pos: String(data.get("postalCode")).trim() }
+            : {}),
+        };
+        const result = await apiRequest<{ temporary_password?: string }>(
+          editingId ? `/api/customers/${encodeURIComponent(editingId)}` : "/api/customers",
+          { method: editingId ? "PATCH" : "POST", body: JSON.stringify(body) },
+        );
+        setNotice(result.temporary_password
+          ? `Pelanggan dibuat. Kata sandi sementara (catat dan sampaikan dengan aman): ${result.temporary_password}`
+          : editingId ? "Data pelanggan berhasil diperbarui." : "Pelanggan berhasil ditambahkan.");
+      } else if (dialog === "order") {
+        await apiRequest("/api/orders", {
+          method: "POST",
+          body: JSON.stringify({
+            items: [{
+              id_produk: String(data.get("product")),
+              jumlah: Number(data.get("quantity")),
+              ukuran: String(data.get("size") ?? ""),
+              spesifikasi_desain: String(data.get("specification") ?? "").trim() || null,
+            }],
+            metode_pengambilan: String(data.get("delivery")),
+          }),
+        });
+        setNotice("Pesanan berhasil dibuat dan dikirim ke admin.");
+      }
+      await refreshData(role);
+      setDialog(null);
+      setEditingId("");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Data gagal disimpan.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateOrder(id: string, field: "status" | "payment", value: string) {
+    const order = orders.find((item) => item.id === id);
+    if (!order) return;
+    try {
+      if (field === "payment") {
+        await apiRequest("/api/payments", {
+          method: "POST",
+          body: JSON.stringify({
+            id_pesanan: id,
+            metode_bayar: "Transfer Bank",
+            bukti_bayar: value,
+            jumlah_bayar: order.total,
+          }),
+        });
+        setNotice("Referensi bukti pembayaran berhasil dikirim untuk diverifikasi.");
+      } else if (role === "Admin" && section === "Verifikasi Pembayaran") {
+        if (!order.paymentId) throw new Error("Pesanan ini belum memiliki pembayaran untuk diverifikasi.");
+        await apiRequest(`/api/payments/${encodeURIComponent(order.paymentId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status_pembayaran: "Terverifikasi" }),
+        });
+        setNotice("Pembayaran berhasil diverifikasi.");
+      } else if (role === "Admin") {
+        await apiRequest(`/api/orders/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            status_pesanan: value === "Dikonfirmasi" ? "Menunggu Pembayaran" : value,
+          }),
+        });
+        setNotice("Status pesanan berhasil diperbarui.");
+      } else if (role === "Produksi") {
+        if (!order.productionId) throw new Error("Pesanan ini belum memiliki antrean produksi.");
+        const status_produksi = value === "Diproses" ? "Jahit" : value;
+        await apiRequest(`/api/production/${encodeURIComponent(order.productionId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status_produksi }),
+        });
+        setNotice("Status produksi berhasil diperbarui.");
+      } else if (role === "Pengiriman") {
+        if (!order.shipmentId) throw new Error("Pesanan ini belum memiliki data pengiriman.");
+        await apiRequest(`/api/shipments/${encodeURIComponent(order.shipmentId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status_pengiriman: value === "Update" ? "Dalam Perjalanan" : value }),
+        });
+        setNotice("Status pengiriman berhasil diperbarui.");
+      } else {
+        setNotice("Aksi ini tidak tersedia untuk peran akun saat ini.");
+        return;
+      }
+      await refreshData(role);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Perubahan status gagal disimpan.");
+    }
+  }
+
+  async function deleteRecord(resource: "products" | "customers", id: string) {
+    if (!window.confirm("Hapus data ini secara permanen?")) return;
+    try {
+      await apiRequest(`/api/${resource}/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await refreshData(role);
+      setNotice(resource === "products" ? "Produk berhasil dihapus." : "Pelanggan berhasil dihapus.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Data gagal dihapus.");
+    }
   }
 
   function renderAdminDashboard() {
     const waiting = orders.filter((order) => order.status.toLowerCase().includes("menunggu")).length;
+    const awaitingVerification = orders.filter((order) => order.payment.toLowerCase().includes("menunggu verifikasi")).length;
+    const awaitingPayment = orders.filter((order) => order.status.toLowerCase().includes("menunggu pembayaran")).length;
     return (
       <>
         <div className="page-heading">
@@ -511,8 +832,8 @@ function Workspace() {
         </div>
         <div className="metrics metrics-three">
           <MetricCard label="Pesanan Masuk" value={String(orders.length)} />
-          <MetricCard label="Menunggu Verifikasi" value={String(orders.filter((order) => order.status.toLowerCase().includes("menunggu verifikasi")).length)} />
-          <MetricCard label="Menunggu Pembayaran" value={String(orders.filter((order) => order.status.toLowerCase().includes("menunggu pembayaran")).length)} />
+          <MetricCard label="Menunggu Verifikasi" value={String(awaitingVerification)} />
+          <MetricCard label="Menunggu Pembayaran" value={String(awaitingPayment)} />
         </div>
         <Panel title="Pesanan terbaru" action={<button className="button button-primary" onClick={() => setSection("Konfirmasi Pesanan")} type="button">+ Tambah / Filter</button>}>
           <div className="table-scroll">
@@ -523,25 +844,26 @@ function Workspace() {
             </table>
           </div>
         </Panel>
-        <section className="operational-status"><h2>Status Operasional</h2><p>Produksi: Antrean {waiting} • Jahit 1 • Selesai 2</p><p>Pengiriman: Belum Siap 2 • Belum Dikirim 1 • Dalam Perjalanan 1 • Diambil 1</p><p>Pembayaran: 4 terverifikasi • 1 menunggu verifikasi.</p></section>
+        <section className="operational-status"><h2>Status Operasional</h2><p>Pesanan menunggu: {waiting}</p><p>Pesanan selesai: {orders.filter((order) => order.status === "Selesai").length} • Dalam proses: {orders.filter((order) => ["Diproses", "Jahit", "Proses"].includes(order.status)).length}</p><p>Pembayaran menunggu verifikasi: {awaitingVerification}</p></section>
       </>
     );
   }
 
   function renderOwnerDashboard() {
+    const totalOrders = orders.reduce((sum, order) => sum + order.total, 0);
     return (
       <>
-        <section className="owner-greeting"><div><h1>Hallo, Owner!</h1><strong>{userName}</strong></div><b>{userName} AKN-004</b></section>
+        <section className="owner-greeting"><div><h1>Hallo, Owner!</h1><strong>{userName}</strong></div><b>{apiUser?.id_akun}</b></section>
         <div className="metrics metrics-three owner-metrics">
-          <MetricCard label="Pesanan" value="0" /><MetricCard label="Produk" value="102" /><MetricCard label="Total Pesanan" value="Rp 7.340.000" />
+          <MetricCard label="Pesanan" value={String(orders.length)} /><MetricCard label="Produk" value={String(products.length)} /><MetricCard label="Total Pesanan" value={formatCurrency(totalOrders)} />
         </div>
         <Panel title="Laporan" action={<div className="report-actions"><select aria-label="Periode laporan" defaultValue="Oktober 2026"><option>Oktober 2026</option><option>September 2026</option></select><button className="button button-soft" onClick={() => window.print()} type="button">Cetak Laporan</button></div>}>
           <p className="panel-subtitle">LAP-001 | Hanya Baca</p>
           <div className="table-scroll"><table><thead><tr><th>NAMA / ID</th><th>KETERANGAN</th><th>AKSI</th></tr></thead>
             <tbody>
-              <tr><td><strong>Laporan penjualan LAP-001</strong><small>10/2026</small></td><td><strong>Rp4.890.000</strong><small>20 Okt 2026</small></td><td><button className="button button-soft" onClick={() => setSection("Laporan Penjualan")} type="button">Lihat</button></td></tr>
-              <tr><td><strong>Rekap pemesanan</strong><small>5 pesanan • 102 pcs</small></td><td><strong>Status Pesanan</strong><small>1 Selesai • 1 Dikirim • 1 Diproses • 1 Menunggu Verifikasi</small></td><td><button className="button button-soft" onClick={() => setSection("Rekap Pesanan")} type="button">Lihat</button></td></tr>
-              <tr><td><strong>Laporan pembayaran</strong><small>5 transaksi</small></td><td><strong>5 Pembayaran • Rp6.690.000</strong><small>4 Terverifikasi • 1 menunggu Rp2.200.000</small></td><td><button className="button button-soft" onClick={() => setSection("Laporan Pembayaran")} type="button">Lihat</button></td></tr>
+              <tr><td><strong>Pesanan saat ini</strong><small>{orders.length} pesanan dari database</small></td><td><strong>{formatCurrency(totalOrders)}</strong><small>Total nilai pesanan</small></td><td><button className="button button-soft" onClick={() => setSection("Rekap Pesanan")} type="button">Lihat</button></td></tr>
+              <tr><td><strong>Katalog produk</strong><small>{products.length} produk terdaftar</small></td><td><strong>Produk</strong><small>Data katalog</small></td><td><button className="button button-soft" onClick={() => setSection("Laporan Penjualan")} type="button">Lihat</button></td></tr>
+              <tr><td><strong>Pembayaran</strong><small>{orders.filter((order) => order.payment !== "Belum dibayar").length} transaksi terkait pesanan</small></td><td><strong>Status pembayaran</strong><small>{orders.filter((order) => order.payment === "Terverifikasi").length} terverifikasi</small></td><td><button className="button button-soft" onClick={() => setSection("Laporan Pembayaran")} type="button">Lihat</button></td></tr>
             </tbody></table></div>
         </Panel>
       </>
@@ -551,41 +873,48 @@ function Workspace() {
   function renderCustomerDashboard() {
     return (
       <>
-        <div className="page-heading"><div><h1>Dashboard Pelanggan</h1><p>{userName}</p></div><span className="user-id">Akun: {userName} PLG-001</span></div>
+        <div className="page-heading"><div><h1>Dashboard Pelanggan</h1><p>{userName}</p></div><span className="user-id">Akun: {customerProfile?.id ?? "—"}</span></div>
         <div className="customer-info-grid">
           <Panel title="Informasi Akun">
-            <div className="info-list"><p><b>Nama Lengkap</b><span>{userName}</span></p><p><b>Username</b><span>{username || "tiva"}</span></p><p><b>Jenis Kelamin</b><span>Perempuan</span></p><p><b>Nomor Telepon</b><span>081329874512</span></p><p><b>ID pelanggan</b><span>PLG-001</span></p><p><b>ID akun</b><span>AKN-005</span></p></div>
+            <div className="info-list"><p><b>Nama Lengkap</b><span>{userName || "—"}</span></p><p><b>Username</b><span>{username || "—"}</span></p><p><b>Jenis Kelamin</b><span>{customerProfile?.gender || "—"}</span></p><p><b>Nomor Telepon</b><span>{customerProfile?.phone || "—"}</span></p><p><b>ID pelanggan</b><span>{customerProfile?.id || "—"}</span></p><p><b>ID akun</b><span>{apiUser?.id_akun || "—"}</span></p></div>
           </Panel>
           <Panel title="Alamat Pelanggan">
-            <div className="info-list"><p><b>Jalan/nomor</b><span>Jl. Kenanga No.12</span></p><p><b>RT/RW</b><span>03/05</span></p><p><b>Kelurahan</b><span>Purus</span></p><p><b>Kecamatan</b><span>Padang Barat</span></p><p><b>Kota</b><span>Kota Padang</span></p><p><b>Provinsi</b><span>Sumatera Barat</span></p></div>
+            <div className="info-list"><p><b>Jalan/nomor</b><span>{customerProfile?.street || "—"}</span></p><p><b>RT/RW</b><span>{customerProfile?.rt || "—"}/{customerProfile?.rw || "—"}</span></p><p><b>Kelurahan</b><span>{customerProfile?.village || "—"}</span></p><p><b>Kecamatan</b><span>{customerProfile?.district || "—"}</span></p><p><b>Kota</b><span>{customerProfile?.city || "—"}</span></p><p><b>Provinsi</b><span>{customerProfile?.province || "—"}</span></p></div>
           </Panel>
         </div>
         <Panel title="Pesanan pelanggan" action={<button className="button button-primary" onClick={() => setSection("Katalog Produk")} type="button">Buat Pesanan</button>}>
-          <OrdersTable orders={orders.slice(0, 3)} onAction={(order) => setNotice(`Detail ${order.id} dibuka pada sesi preview.`)} />
+          <OrdersTable orders={orders.slice(0, 3)} onAction={async (order) => {
+            try {
+              const result = await apiRequest<{ data: ApiRecord }>(`/api/orders/${encodeURIComponent(order.id)}`);
+              setNotice(`Pesanan ${order.id}: ${String(result.data.status_pesanan)} · ${formatCurrency(Number(result.data.total_harga))}`);
+            } catch (error) {
+              setNotice(error instanceof Error ? error.message : "Detail pesanan gagal dimuat.");
+            }
+          }} />
         </Panel>
-        <Panel title="Riwayat pesanan"><p className="history-note">1 Okt 2026 • Pesanan Kaos Hitam • 24 pcs</p><p className="history-note">2 Okt 2026 • Transfer lunas • Terverifikasi</p><p className="history-note">10 Okt 2026 • Pesanan diambil di toko</p></Panel>
+        <Panel title="Riwayat pesanan">{orders.length ? orders.map((order) => <p className="history-note" key={order.id}>{order.date} • {order.product} • {order.quantity} pcs · {order.status}</p>) : <p className="history-note">Belum ada riwayat pesanan.</p>}</Panel>
       </>
     );
   }
 
   function renderDeliveryDashboard() {
     const deliveryStatuses = [
-      { label: "Belum siap", count: "2" },
-      { label: "Belum dikirim", count: "1" },
-      { label: "Siap dikirim", count: "0" },
-      { label: "Dalam perjalanan", count: "1" },
-      { label: "Diambil", count: "1" },
-      { label: "Diterima", count: "0" },
+      { label: "Belum siap", count: orders.filter((order) => order.status === "Belum Siap").length },
+      { label: "Belum dikirim", count: orders.filter((order) => order.status === "Belum Dikirim").length },
+      { label: "Siap dikirim", count: orders.filter((order) => order.status === "Siap Dikirim").length },
+      { label: "Dalam perjalanan", count: orders.filter((order) => order.status === "Dalam Perjalanan").length },
+      { label: "Diambil", count: orders.filter((order) => order.status === "Diambil").length },
+      { label: "Diterima", count: orders.filter((order) => order.status === "Diterima").length },
     ];
     return (
       <>
         <div className="page-heading"><div><h1>Dashboard</h1></div><span className="user-id">Pengiriman</span></div>
         <div className="metrics metrics-six">
-          {deliveryStatuses.map((status) => <MetricCard key={status.label} label={status.label} value={status.count} />)}
+          {deliveryStatuses.map((status) => <MetricCard key={status.label} label={status.label} value={String(status.count)} />)}
         </div>
         <Panel title="Pengiriman terbaru" action={<button className="button button-primary" onClick={() => setSection("Daftar Pengiriman")} type="button">Filter</button>}>
           <div className="table-scroll"><table><thead><tr><th>ID / NAMA</th><th>STATUS DAN METODE</th><th>ESTIMASI</th><th>AKSI</th></tr></thead>
-            <tbody>{orders.map((order, index) => <tr key={order.id}><td><strong>KRM-00{index + 1}-{order.id}</strong><small>{order.customer} • {order.product} • 24 pcs</small></td><td>{index === 0 ? "DIAMBIL · Ambil di toko" : order.status}</td><td>{order.date}</td><td><button className="text-button" onClick={() => updateOrder(order.id, "status", "Dalam perjalanan")} type="button">{index === 0 ? "Detail" : "Update"}</button></td></tr>)}</tbody>
+            <tbody>{orders.map((order) => <tr key={order.id}><td><strong>{order.shipmentId ?? order.id}</strong><small>{order.customer} • {order.product} • {order.quantity} pcs</small></td><td>{order.status}</td><td>{order.date}</td><td><button className="text-button" onClick={() => updateOrder(order.id, "status", "Dalam Perjalanan")} type="button">Update</button></td></tr>)}</tbody>
           </table></div>
         </Panel>
       </>
@@ -593,10 +922,13 @@ function Workspace() {
   }
 
   function renderProductionDashboard() {
+    const queued = orders.filter((order) => order.status === "Antri").length;
+    const working = orders.filter((order) => ["Jahit", "Proses"].includes(order.status)).length;
+    const completed = orders.filter((order) => order.status === "Selesai").length;
     return (
       <>
         <div className="page-heading"><div><h1>Dashboard Produksi</h1><p>Ringkasan proses pesanan</p></div></div>
-        <div className="metrics metrics-three"><MetricCard label="Antrean" value="2" /><MetricCard label="Sedang Dikerjakan" value="1" /><MetricCard label="Selesai" value="2" /></div>
+        <div className="metrics metrics-three"><MetricCard label="Antrean" value={String(queued)} /><MetricCard label="Sedang Dikerjakan" value={String(working)} /><MetricCard label="Selesai" value={String(completed)} /></div>
         <Panel title="Antrean produksi" action={<button className="button button-primary" onClick={() => setSection("Antrean Produksi")} type="button">Lihat antrean</button>}>
           <OrdersTable orders={orders.filter((order) => order.status !== "Selesai").slice(0, 4)} onAction={(order) => updateOrder(order.id, "status", "Diproses")} />
         </Panel>
@@ -611,7 +943,7 @@ function Workspace() {
         <div className="metrics metrics-three compact-metrics"><MetricCard label="Produk" value={String(products.length).padStart(2, "0")} /><MetricCard label="Pelanggan" value={String(customers.length).padStart(2, "0")} /><MetricCard label="Pesanan" value={String(orders.length).padStart(2, "0")} /></div>
         <Panel title="Data produk" action={<SearchBox value={search} onChange={setSearch} />}>
           <div className="table-scroll"><table><thead><tr><th>NAMA / ID</th><th>KETERANGAN / STATUS</th><th>STATUS</th><th>AKSI</th></tr></thead>
-            <tbody>{filteredProducts.map((item) => <tr key={item.id}><td><strong>{item.id} • {item.name}</strong></td><td>{formatCurrency(item.price)} • {item.material}</td><td><span className="status-pill">{item.status}</span></td><td><div className="table-actions"><button className="button button-soft" onClick={() => openDialog("product", item.id)} type="button">Edit</button><button className="button button-soft" onClick={() => { setProducts((current) => current.filter((product) => product.id !== item.id)); setNotice("Produk dihapus dari sesi preview."); }} type="button">Hapus</button></div></td></tr>)}</tbody>
+            <tbody>{filteredProducts.map((item) => <tr key={item.id}><td><strong>{item.id} • {item.name}</strong></td><td>{formatCurrency(item.price)} • {item.material}</td><td><span className="status-pill">{item.status}</span></td><td><div className="table-actions"><button className="button button-soft" onClick={() => openDialog("product", item.id)} type="button">Edit</button><button className="button button-soft" onClick={() => deleteRecord("products", item.id)} type="button">Hapus</button></div></td></tr>)}</tbody>
           </table></div>
         </Panel>
       </>
@@ -624,7 +956,7 @@ function Workspace() {
         <div className="page-heading"><div><h1>Kelola Pelanggan</h1><p>CV Jogja Konveksi / Admin</p></div><button className="button button-primary" onClick={() => openDialog("customer")} type="button">+ Tambah Pelanggan</button></div>
         <Panel title="Data pelanggan" action={<SearchBox value={search} onChange={setSearch} />}>
           <div className="table-scroll"><table><thead><tr><th>ID</th><th>NAMA</th><th>USERNAME</th><th>NO.HP</th><th>KODE POS</th><th>AKSI</th></tr></thead>
-            <tbody>{filteredCustomers.map((item) => <tr key={item.id}><td><strong>{item.id}</strong></td><td>{item.name}</td><td>{item.username}</td><td>{item.phone}</td><td>{item.postalCode}</td><td><div className="table-actions"><button className="button button-soft" onClick={() => openDialog("customer", item.id)} type="button">Edit</button><button className="button button-soft" onClick={() => { setCustomers((current) => current.filter((customer) => customer.id !== item.id)); setNotice("Pelanggan dihapus dari sesi preview."); }} type="button">Hapus</button></div></td></tr>)}</tbody>
+            <tbody>{filteredCustomers.map((item) => <tr key={item.id}><td><strong>{item.id}</strong></td><td>{item.name}</td><td>{item.username}</td><td>{item.phone}</td><td>{item.postalCode}</td><td><div className="table-actions"><button className="button button-soft" onClick={() => openDialog("customer", item.id)} type="button">Edit</button><button className="button button-soft" onClick={() => deleteRecord("customers", item.id)} type="button">Hapus</button></div></td></tr>)}</tbody>
           </table></div>
         </Panel>
       </>
@@ -637,7 +969,7 @@ function Workspace() {
         <div className="page-heading"><div><h1>{title}</h1><p>CV Jogja Konveksi / {role}</p></div><SearchBox value={search} onChange={setSearch} /></div>
         <Panel title={title}>
           <div className="table-scroll"><table><thead><tr><th>ID PESANAN</th><th>PELANGGAN / PRODUK</th><th>TOTAL</th><th>STATUS</th><th>AKSI</th></tr></thead>
-            <tbody>{orders.filter((order) => `${order.id} ${order.customer} ${order.product}`.toLowerCase().includes(search.toLowerCase())).map((order) => <tr key={order.id}><td><strong>{order.id}</strong><small>{order.date}</small></td><td>{order.customer}<small>{order.product}</small></td><td>{formatCurrency(order.total)}</td><td><span className="status-pill">{order.status}</span></td><td><button className="button button-soft" onClick={() => updateOrder(order.id, "status", actionLabel)} type="button">{actionLabel}</button></td></tr>)}</tbody>
+            <tbody>{orders.filter((order) => `${order.id} ${order.customer} ${order.product}`.toLowerCase().includes(search.toLowerCase())).map((order) => <tr key={order.id}><td><strong>{order.id}</strong><small>{order.date}</small></td><td>{order.customer}<small>{order.product}</small></td><td>{formatCurrency(order.total)}</td><td><span className="status-pill">{order.status}</span></td><td><button className="button button-soft" onClick={() => updateOrder(order.id, "status", actionLabel)} disabled={role === "Admin" && section === "Verifikasi Pembayaran" && (order.payment !== "Menunggu Verifikasi" || !order.paymentId)} type="button">{actionLabel}</button></td></tr>)}</tbody>
           </table></div>
         </Panel>
       </>
@@ -651,7 +983,7 @@ function Workspace() {
       if (section === "Kelola Pelanggan") return renderCustomers();
       if (section === "Konfirmasi Pesanan") return renderOrders(section, "Dikonfirmasi");
       if (section === "Verifikasi Pembayaran") return renderOrders(section, "Verifikasi");
-      if (section === "Kritik & Saran") return <FeedbackPage role={role} />;
+      if (section === "Kritik & Saran") return <FeedbackPage role={role} orders={orders} />;
       return <NotificationPage role={role} />;
     }
     if (role === "Owner") {
@@ -661,10 +993,10 @@ function Workspace() {
     if (role === "Pelanggan") {
       if (section === "Dashboard") return renderCustomerDashboard();
       if (section === "Katalog Produk") return <CatalogPage products={products} onOrder={() => openDialog("order")} />;
-      if (section === "Buat Pesanan") return <CreateOrderPage products={products} onCreate={() => openDialog("order")} />;
-      if (section === "Pembayaran") return <PaymentPage orders={orders} onPay={(id) => updateOrder(id, "payment", "Menunggu verifikasi")} />;
-      if (section === "Perubahan Pesanan") return <ChangeRequestPage />;
-      if (section === "Kritik & Saran") return <FeedbackPage role={role} />;
+      if (section === "Buat Pesanan") return <CreateOrderPage products={products} onCreate={openOrderDialog} />;
+      if (section === "Pembayaran") return <PaymentPage orders={orders} onPay={(id, reference) => updateOrder(id, "payment", reference)} />;
+      if (section === "Perubahan Pesanan") return <ChangeRequestPage orders={orders} />;
+      if (section === "Kritik & Saran") return <FeedbackPage role={role} orders={orders} />;
       if (section === "Notifikasi") return <NotificationPage role={role} />;
       return renderOrders("Riwayat Pesanan", "Detail");
     }
@@ -680,7 +1012,12 @@ function Workspace() {
   }
 
   if (screen === "welcome") {
-    return <Welcome onChoose={chooseRole} />;
+    return (
+      <>
+        {notice && <p className="notice" role="alert">{notice}</p>}
+        <Welcome onChoose={chooseRole} />
+      </>
+    );
   }
   if (screen === "login") {
     return (
@@ -688,27 +1025,22 @@ function Workspace() {
         role={role}
         onBack={() => setScreen("welcome")}
         onRegister={() => setScreen("register")}
-        onPreview={(value) => {
-          setUsername(value);
-          setSection(navigation[role][0]);
-          setNotice("Mode preview aktif. Perubahan data hanya tersimpan di browser dan tidak dikirim ke backend.");
-          setScreen("app");
-        }}
+        onLogin={login}
       />
     );
   }
   if (screen === "register") {
-    return <Registration onBack={() => setScreen("login")} />;
+    return <Registration role={role} onBack={() => setScreen("login")} onRegistered={activateUser} />;
   }
 
   return (
     <div className={`app-shell role-${role.toLowerCase()}`}>
-      <Sidebar role={role} active={section} onNavigate={(next) => { setSection(next); setSearch(""); }} onLogout={() => { setScreen("welcome"); setNotice(""); }} />
+      <Sidebar role={role} active={section} onNavigate={(next) => { setSection(next); setSearch(""); }} onLogout={logout} />
       <main className="workspace-main">
         {role === "Owner" && section === "Dashboard Owner" ? null : null}
         <div className="workspace-toolbar">
           <span>CV Jogja Konveksi <b>/</b> {role}</span>
-          {role === "Owner" && <button className="button button-soft" onClick={() => setScreen("welcome")} type="button">Ganti Peran</button>}
+          {role === "Owner" && <button className="button button-soft" onClick={logout} type="button">Keluar</button>}
         </div>
         {notice && <div className="notice" role="status"><span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Tutup notifikasi">×</button></div>}
         {renderSection()}
@@ -720,8 +1052,8 @@ function Workspace() {
             <h2>{dialog === "product" ? editingId ? "Edit Produk" : "Tambah Produk" : dialog === "customer" ? editingId ? "Edit Pelanggan" : "Tambah Pelanggan" : "Buat Pesanan"}</h2>
             {dialog === "product" && <ProductDialog products={products} editingId={editingId} />}
             {dialog === "customer" && <CustomerDialog customers={customers} editingId={editingId} />}
-            {dialog === "order" && <OrderDialog products={products} />}
-            <div className="dialog-actions"><button className="button button-muted" type="button" onClick={() => setDialog(null)}>Batal</button><button className="button button-primary" type="submit">{dialog === "order" ? "Konfirmasi Pesanan" : "Simpan"}</button></div>
+            {dialog === "order" && <OrderDialog products={products} draft={orderDraft} />}
+            <div className="dialog-actions"><button className="button button-muted" type="button" onClick={() => setDialog(null)} disabled={busy}>Batal</button><button className="button button-primary" type="submit" disabled={busy}>{busy ? "Menyimpan..." : dialog === "order" ? "Konfirmasi Pesanan" : "Simpan"}</button></div>
           </form>
         </div>
       )}
@@ -736,7 +1068,7 @@ function SearchBox({ value, onChange }: { value: string; onChange: (value: strin
 function OrdersTable({ orders, onAction }: { orders: Order[]; onAction: (order: Order) => void }) {
   return (
     <div className="table-scroll"><table><thead><tr><th>PESANAN</th><th>PRODUK / JUMLAH</th><th>TOTAL</th><th>STATUS</th><th>AKSI</th></tr></thead>
-      <tbody>{orders.map((order) => <tr key={order.id}><td><strong>{order.id}</strong><small>{order.customer} • {order.date}</small></td><td>{order.product}<small>24 pcs</small></td><td>{formatCurrency(order.total)}</td><td><span className="status-pill">{order.status}</span></td><td><button className="text-button" type="button" onClick={() => onAction(order)}>Rincian</button></td></tr>)}</tbody>
+      <tbody>{orders.map((order) => <tr key={order.id}><td><strong>{order.id}</strong><small>{order.customer} • {order.date}</small></td><td>{order.product}<small>{order.quantity} pcs</small></td><td>{formatCurrency(order.total)}</td><td><span className="status-pill">{order.status}</span></td><td><button className="text-button" type="button" onClick={() => onAction(order)}>Rincian</button></td></tr>)}</tbody>
     </table></div>
   );
 }
@@ -751,53 +1083,131 @@ function CatalogPage({ products, onOrder }: { products: Product[]; onOrder: () =
   );
 }
 
-function CreateOrderPage({ products, onCreate }: { products: Product[]; onCreate: () => void }) {
+function CreateOrderPage({ products, onCreate }: { products: Product[]; onCreate: (draft: OrderDraft) => void }) {
+  const [product, setProduct] = useState("");
+  const [quantity, setQuantity] = useState("24");
+  const [size, setSize] = useState("L");
+  const [delivery, setDelivery] = useState("Ambil Sendiri");
+  const [specification, setSpecification] = useState("");
   return (
     <>
       <div className="page-heading"><div><h1>Buat Pesanan</h1><p>Detail pesanan produk baru</p></div></div>
-      <Panel title="Detail pesanan produk baru" action={<button className="button button-primary" onClick={onCreate} type="button">Konfirmasi Pesanan</button>}>
-        <div className="order-builder"><div className="order-fields"><label>Produk<select defaultValue=""><option value="" disabled>Pilih produk</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name} — {formatCurrency(product.price)}</option>)}</select></label><label>Spesifikasi/Desain custom<textarea rows={3} placeholder="Tuliskan detail desain atau ukuran logo" /></label><label>Ukuran<select defaultValue="L"><option>S</option><option>M</option><option>L</option><option>XL</option><option>Custom</option></select></label><label>Jumlah<input type="number" defaultValue={24} min={1} /></label><label>Metode Penerimaan<select defaultValue="Ambil Sendiri"><option>Ambil Sendiri</option><option>Antar Alamat</option></select></label></div><div className="order-summary"><h3>Ringkasan pesanan</h3><p>4 produk tersedia</p><p>Harga menyesuaikan produk dan jumlah yang dipilih.</p><button className="button button-primary" onClick={onCreate} type="button">Konfirmasi Pesanan</button></div></div>
+      <Panel title="Detail pesanan produk baru">
+        <form className="order-builder" onSubmit={(event) => {
+          event.preventDefault();
+          if (!product || Number(quantity) < 1) return;
+          onCreate({ product, quantity: Number(quantity), size, delivery, specification });
+        }}>
+          <div className="order-fields">
+            <label>Produk<select required value={product} onChange={(event) => setProduct(event.target.value)}><option value="" disabled>Pilih produk</option>{products.map((item) => <option key={item.id} value={item.id}>{item.name} — {formatCurrency(item.price)}</option>)}</select></label>
+            <label>Spesifikasi/Desain custom<textarea rows={3} maxLength={150} value={specification} onChange={(event) => setSpecification(event.target.value)} placeholder="Tuliskan detail desain atau ukuran logo" /></label>
+            <label>Ukuran<select value={size} onChange={(event) => setSize(event.target.value)}><option>S</option><option>M</option><option>L</option><option>XL</option><option>Custom</option></select></label>
+            <label>Jumlah<input type="number" value={quantity} min={1} onChange={(event) => setQuantity(event.target.value)} required /></label>
+            <label>Metode Penerimaan<select value={delivery} onChange={(event) => setDelivery(event.target.value)}><option>Ambil Sendiri</option><option>Antar Alamat</option></select></label>
+          </div>
+          <div className="order-summary"><h3>Ringkasan pesanan</h3><p>{products.length} produk tersedia</p><p>Harga menyesuaikan produk dan jumlah yang dipilih.</p><button className="button button-primary" type="submit" disabled={!products.length}>Konfirmasi Pesanan</button></div>
+        </form>
       </Panel>
     </>
   );
 }
 
-function PaymentPage({ orders, onPay }: { orders: Order[]; onPay: (id: string) => void }) {
+function PaymentPage({ orders, onPay }: { orders: Order[]; onPay: (id: string, reference: string) => void }) {
   const [files, setFiles] = useState<Record<string, string>>({});
   return (
     <>
       <div className="page-heading"><div><h1>Pembayaran</h1><p>Riwayat dan status pembayaran</p></div></div>
       <Panel title="Daftar pembayaran">
-        <p className="panel-subtitle">Pilih file bukti transfer. File hanya tersedia selama sesi preview dan belum dikirim ke backend.</p>
-        <div className="table-scroll"><table><thead><tr><th>ID PESANAN</th><th>TOTAL</th><th>STATUS PEMBAYARAN</th><th>BUKTI / AKSI</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td><strong>{order.id}</strong></td><td>{formatCurrency(order.total)}</td><td><span className="status-pill">{order.payment}</span></td><td><div className="payment-upload"><label className="file-picker">Pilih bukti<input type="file" accept="image/*,.pdf" onChange={(event) => setFiles((current) => ({ ...current, [order.id]: event.target.files?.[0]?.name ?? "" }))} /></label>{files[order.id] && <small>{files[order.id]}</small>}<button className="button button-soft" disabled={!files[order.id]} onClick={() => onPay(order.id)} type="button">Kirim bukti</button></div></td></tr>)}</tbody></table></div>
+        <p className="panel-subtitle">Pilih file bukti. Saat ini server menyimpan nama file sebagai referensi, belum mengunggah isi file.</p>
+        <div className="table-scroll"><table><thead><tr><th>ID PESANAN</th><th>TOTAL</th><th>STATUS PEMBAYARAN</th><th>BUKTI / AKSI</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td><strong>{order.id}</strong></td><td>{formatCurrency(order.total)}</td><td><span className="status-pill">{order.payment}</span></td><td><div className="payment-upload"><label className="file-picker">Pilih bukti<input type="file" accept="image/*,.pdf" onChange={(event) => setFiles((current) => ({ ...current, [order.id]: event.target.files?.[0]?.name ?? "" }))} /></label>{files[order.id] && <small>{files[order.id]}</small>}<button className="button button-soft" disabled={!files[order.id] || order.status !== "Menunggu Pembayaran"} onClick={() => onPay(order.id, files[order.id])} type="button">Kirim bukti</button></div></td></tr>)}</tbody></table></div>
       </Panel>
     </>
   );
 }
 
-function ChangeRequestPage() {
+function ChangeRequestPage({ orders }: { orders: Order[] }) {
+  const [message, setMessage] = useState("");
   const [sent, setSent] = useState(false);
+  const [saving, setSaving] = useState(false);
   return (
     <>
       <div className="page-heading"><div><h1>Perubahan Pesanan</h1><p>Ajukan perubahan untuk pesanan aktif</p></div></div>
       <Panel title="Ajukan perubahan">
-        {sent ? <p className="success-message">Permintaan perubahan telah dicatat dalam sesi preview.</p> : <form className="simple-form" onSubmit={(event) => { event.preventDefault(); setSent(true); }}><label>ID pesanan<select><option>PSN-20261001-01</option><option>PSN-20261003-02</option></select></label><label>Deskripsi perubahan<textarea required rows={4} placeholder="Jelaskan perubahan yang diperlukan" /></label><button className="button button-primary" type="submit">Kirim Permintaan</button></form>}
+        {sent ? <p className="success-message">Permintaan perubahan berhasil dikirim.</p> : <form className="simple-form" onSubmit={async (event) => {
+          event.preventDefault();
+          setSaving(true);
+          setMessage("");
+          const form = new FormData(event.currentTarget);
+          try {
+            await apiRequest("/api/order-changes", {
+              method: "POST",
+              body: JSON.stringify({
+                id_pesanan: form.get("orderId"),
+                deskripsi_perubahan: form.get("description"),
+              }),
+            });
+            setSent(true);
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Permintaan gagal dikirim.");
+          } finally {
+            setSaving(false);
+          }
+        }}>
+          <label>ID pesanan<select name="orderId" required defaultValue=""><option value="" disabled>Pilih pesanan</option>{orders.map((order) => <option key={order.id} value={order.id}>{order.id}</option>)}</select></label>
+          <label>Deskripsi perubahan<textarea name="description" required rows={4} placeholder="Jelaskan perubahan yang diperlukan" /></label>
+          {message && <p className="auth-error" role="alert">{message}</p>}
+          <button className="button button-primary" type="submit" disabled={saving || !orders.length}>{saving ? "Mengirim..." : "Kirim Permintaan"}</button>
+        </form>}
       </Panel>
     </>
   );
 }
 
-function FeedbackPage({ role }: { role: Role }) {
+function FeedbackPage({ role, orders }: { role: Role; orders: Order[] }) {
   const [sent, setSent] = useState(false);
-  const [replySaved, setReplySaved] = useState(false);
+  const [feedback, setFeedback] = useState<ApiRecord[]>([]);
+  const [error, setError] = useState("");
+  const [savingId, setSavingId] = useState("");
+  useEffect(() => {
+    apiRequest<{ data: ApiRecord[] }>("/api/feedback")
+      .then((result) => setFeedback(result.data))
+      .catch((loadError: unknown) => setError(loadError instanceof Error ? loadError.message : "Gagal memuat masukan."));
+  }, []);
   if (role === "Admin") {
     return (
       <>
         <div className="page-heading"><div><h1>Kelola Kritik & Saran</h1><p>Masukan pelanggan</p></div></div>
-        <div className="metrics metrics-three compact-metrics"><MetricCard label="Masukan Masuk" value="1" /><MetricCard label="Perlu Tanggapan" value="0" /><MetricCard label="Rating Produk" value="5 / 5" /></div>
-        <Panel title="Masukan pelanggan"><div className="feedback-item"><strong>Tiva Restihan · PLG-001 · KRK-001</strong><span>Rating 5/5 • Pesanan sesuai dan proses pemesanannya mudah.</span></div></Panel>
-        <Panel title="Tanggapan admin">
-          {replySaved ? <p className="success-message">Tanggapan disimpan pada sesi preview.</p> : <form className="simple-form" onSubmit={(event) => { event.preventDefault(); setReplySaved(true); }}><label>Tanggapan<textarea rows={3} defaultValue="Terima kasih, kami tunggu pesanan berikutnya." required /></label><button className="button button-primary" type="submit">Simpan tanggapan</button></form>}
+        <div className="metrics metrics-three compact-metrics"><MetricCard label="Masukan Masuk" value={String(feedback.length)} /><MetricCard label="Perlu Tanggapan" value={String(feedback.filter((item) => !item.tanggapan_admin).length)} /><MetricCard label="Rating Produk" value={feedback.length ? `${(feedback.reduce((sum, item) => sum + Number(item.rating ?? 0), 0) / feedback.length).toFixed(1)} / 5` : "—"} /></div>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        <Panel title="Masukan pelanggan">
+          {feedback.map((item) => (
+            <article className="feedback-item" key={String(item.id_kritik)}>
+              <strong>{String((item.pelanggan as ApiRecord | null)?.id_pelanggan ?? "")} · {String(item.id_kritik)}</strong>
+              <span>Rating {String(item.rating ?? "—")}/5 · {String(item.isi ?? "")}</span>
+              {item.tanggapan_admin ? <p>{String(item.tanggapan_admin)}</p> : <form className="simple-form" onSubmit={async (event) => {
+                event.preventDefault();
+                setSavingId(String(item.id_kritik));
+                const form = new FormData(event.currentTarget);
+                try {
+                  await apiRequest(`/api/feedback/${encodeURIComponent(String(item.id_kritik))}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ tanggapan_admin: form.get("reply") }),
+                  });
+                  setFeedback((current) => current.map((entry) => entry.id_kritik === item.id_kritik
+                    ? { ...entry, tanggapan_admin: form.get("reply") }
+                    : entry));
+                } catch (replyError) {
+                  setError(replyError instanceof Error ? replyError.message : "Tanggapan gagal disimpan.");
+                } finally {
+                  setSavingId("");
+                }
+              }}>
+                <label>Tanggapan<textarea name="reply" rows={3} required /></label>
+                <button className="button button-primary" type="submit" disabled={savingId === item.id_kritik}>{savingId === item.id_kritik ? "Menyimpan..." : "Simpan tanggapan"}</button>
+              </form>}
+            </article>
+          ))}
+          {!feedback.length && !error && <p>Belum ada masukan.</p>}
         </Panel>
       </>
     );
@@ -805,27 +1215,101 @@ function FeedbackPage({ role }: { role: Role }) {
   return (
     <>
       <div className="page-heading"><div><h1>Kritik & Saran</h1><p>Masukan pelanggan</p></div></div>
-      <Panel title="Kirim kritik & saran">{sent ? <p className="success-message">Masukan dicatat pada sesi preview.</p> : <form className="simple-form" onSubmit={(event) => { event.preventDefault(); setSent(true); }}><label>Pesanan<select><option>PSN-20261001-01</option></select></label><label>Rating<select><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></label><label>Masukan<textarea required rows={3} /></label><button className="button button-primary" type="submit">Kirim Masukan</button></form>}</Panel>
+      <Panel title="Kirim kritik & saran">{sent ? <p className="success-message">Masukan berhasil dikirim.</p> : <form className="simple-form" onSubmit={async (event) => {
+        event.preventDefault();
+        setError("");
+        const form = new FormData(event.currentTarget);
+        try {
+          await apiRequest("/api/feedback", {
+            method: "POST",
+            body: JSON.stringify({
+              id_pesanan: form.get("orderId"),
+              rating: Number(form.get("rating")),
+              isi: form.get("content"),
+            }),
+          });
+          setSent(true);
+        } catch (submitError) {
+          setError(submitError instanceof Error ? submitError.message : "Masukan gagal dikirim.");
+        }
+      }}>
+        <label>Pesanan<select name="orderId" required defaultValue=""><option value="" disabled>Pilih pesanan</option>{orders.map((order) => <option key={order.id} value={order.id}>{order.id}</option>)}</select></label>
+        <label>Rating<select name="rating" defaultValue="5"><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></label>
+        <label>Masukan<textarea name="content" required rows={3} /></label>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        <button className="button button-primary" type="submit">Kirim Masukan</button>
+      </form>}</Panel>
     </>
   );
 }
 
 function NotificationPage({ role }: { role: Role }) {
-  const [read, setRead] = useState(false);
+  const [notifications, setNotifications] = useState<ApiRecord[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    apiRequest<{ data: ApiRecord[] }>("/api/notifications")
+      .then((result) => setNotifications(result.data))
+      .catch((loadError: unknown) => setError(loadError instanceof Error ? loadError.message : "Gagal memuat notifikasi."));
+  }, []);
+
+  async function markAsRead(id: string) {
+    try {
+      await apiRequest(`/api/notifications/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status_baca: 1 }),
+      });
+      setNotifications((current) => current.map((item) => item.id_notifikasi === id
+        ? { ...item, status_baca: 1 }
+        : item));
+    } catch (readError) {
+      setError(readError instanceof Error ? readError.message : "Notifikasi gagal diperbarui.");
+    }
+  }
+
+  const unreadCount = notifications.filter((item) => Number(item.status_baca ?? 0) === 0).length;
   return (
     <>
       <div className="page-heading"><div><h1>Notifikasi {role}</h1><p>Informasi terbaru terkait pesanan</p></div></div>
-      <div className="metrics metrics-three compact-metrics"><MetricCard label="Notifikasi" value={read ? "0" : "1"} /><MetricCard label="Belum dibaca" value={read ? "0" : "1"} /><MetricCard label="Akun" value={role} /></div>
-      <Panel title="Perlu ditinjau"><div className="notification-row"><div><strong>BYR-004 · Divya · PSN-20261014-04</strong><p>Transfer lunas Rp2.200.000 · Menunggu verifikasi bukti pembayaran.</p></div><button className="button button-soft" type="button" onClick={() => setRead(true)}>{read ? "Dibaca" : "Tandai dibaca"}</button></div></Panel>
+      <div className="metrics metrics-three compact-metrics"><MetricCard label="Notifikasi" value={String(notifications.length)} /><MetricCard label="Belum dibaca" value={String(unreadCount)} /><MetricCard label="Akun" value={role} /></div>
+      {error && <p className="auth-error" role="alert">{error}</p>}
+      <Panel title="Perlu ditinjau">
+        {notifications.map((item) => {
+          const order = item.pesanan as ApiRecord | null;
+          const isRead = Number(item.status_baca ?? 0) === 1;
+          return <div className="notification-row" key={String(item.id_notifikasi)}>
+            <div><strong>{String(order?.id_pesanan ?? "")}</strong><p>{String(item.pesan ?? "")}</p></div>
+            <button className="button button-soft" type="button" disabled={isRead} onClick={() => markAsRead(String(item.id_notifikasi))}>{isRead ? "Dibaca" : "Tandai dibaca"}</button>
+          </div>;
+        })}
+        {!notifications.length && !error && <p>Tidak ada notifikasi.</p>}
+      </Panel>
     </>
   );
 }
 
 function ReportPage({ section, onOpen }: { section: string; onOpen: (message: string) => void }) {
+  const [report, setReport] = useState<{ summary: ApiRecord; laporan: ApiRecord[] } | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    apiRequest<{ data: { summary: ApiRecord; laporan: ApiRecord[] } }>("/api/reports")
+      .then((result) => setReport(result.data))
+      .catch((loadError: unknown) => setError(loadError instanceof Error ? loadError.message : "Gagal memuat laporan."));
+  }, []);
   return (
     <>
       <div className="page-heading"><div><h1>{section}</h1><p>CV Jogja Konveksi / Owner</p></div><button className="button button-soft" onClick={() => window.print()} type="button">Cetak Laporan</button></div>
-      <Panel title={section}><p className="panel-subtitle">LAP-001 | Hanya Baca</p><div className="table-scroll"><table><thead><tr><th>NAMA / ID</th><th>KETERANGAN</th><th>AKSI</th></tr></thead><tbody><tr><td>Laporan penjualan LAP-001</td><td>Rp4.890.000 · 20 Okt 2026</td><td><button className="button button-soft" onClick={() => onOpen("Ringkasan laporan penjualan periode Oktober 2026.")} type="button">Lihat</button></td></tr><tr><td>Rekap pemesanan</td><td>5 pesanan • 102 pcs</td><td><button className="button button-soft" onClick={() => onOpen("Rekap pesanan periode Oktober 2026.")} type="button">Lihat</button></td></tr><tr><td>Laporan pembayaran</td><td>5 transaksi • Rp6.690.000</td><td><button className="button button-soft" onClick={() => onOpen("Laporan pembayaran periode Oktober 2026.")} type="button">Lihat</button></td></tr></tbody></table></div></Panel>
+      {error && <p className="auth-error" role="alert">{error}</p>}
+      <Panel title={section}>
+        <p className="panel-subtitle">Ringkasan basis data · {String(report?.summary.pesanan ?? "—")} pesanan · {String(report?.summary.pelanggan ?? "—")} pelanggan · {formatCurrency(Number(report?.summary.total_pembayaran ?? 0))} pembayaran tercatat.</p>
+        <div className="table-scroll"><table><thead><tr><th>NAMA / ID</th><th>KETERANGAN</th><th>AKSI</th></tr></thead><tbody>
+          {(report?.laporan ?? []).map((item) => <tr key={String(item.id_laporan)}>
+            <td><strong>{String(item.id_laporan)}</strong><small>{String(item.periode_bulan)}/{String(item.periode_tahun)}</small></td>
+            <td>{formatCurrency(Number(item.total_pendapatan ?? 0))}</td>
+            <td><button className="button button-soft" onClick={() => onOpen(`Laporan ${String(item.id_laporan)} periode ${String(item.periode_bulan)}/${String(item.periode_tahun)}.`)} type="button">Lihat</button></td>
+          </tr>)}
+          {!report?.laporan.length && !error && <tr><td colSpan={3}>Belum ada laporan tersimpan.</td></tr>}
+        </tbody></table></div>
+      </Panel>
     </>
   );
 }
@@ -840,13 +1324,13 @@ function ProductDialog({ products, editingId }: { products: Product[]; editingId
 function CustomerDialog({ customers, editingId }: { customers: Customer[]; editingId: string }) {
   const customer = customers.find((item) => item.id === editingId);
   return (
-    <div className="dialog-fields"><label>Nama lengkap<input name="name" required defaultValue={customer?.name} /></label><label>Username<input name="username" required defaultValue={customer?.username} /></label><label>Nomor telepon<input name="phone" required defaultValue={customer?.phone} /></label><label>Kode pos<input name="postalCode" required defaultValue={customer?.postalCode} /></label></div>
+    <div className="dialog-fields"><label>Nama lengkap<input name="name" required defaultValue={customer?.name} /></label><label>Username<input name="username" required defaultValue={customer?.username} /></label><label>Nomor telepon<input name="phone" required defaultValue={customer?.phone} /></label><label>Jalan/nomor<input name="street" defaultValue={customer?.street} /></label><label>RT<input name="rt" maxLength={3} defaultValue={customer?.rt} /></label><label>RW<input name="rw" maxLength={3} defaultValue={customer?.rw} /></label><label>Kode pos<input name="postalCode" defaultValue={customer?.postalCode} /></label></div>
   );
 }
 
-function OrderDialog({ products }: { products: Product[] }) {
+function OrderDialog({ products, draft }: { products: Product[]; draft: OrderDraft | null }) {
   return (
-    <div className="dialog-fields"><label>Produk<select name="product" required defaultValue=""><option value="" disabled>Pilih produk</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label><label>Jumlah<input name="quantity" type="number" min={1} defaultValue={24} required /></label><label>Ukuran<select name="size" defaultValue="L"><option>S</option><option>M</option><option>L</option><option>XL</option></select></label><label>Metode penerimaan<select name="delivery" defaultValue="Ambil Sendiri"><option>Ambil Sendiri</option><option>Antar Alamat</option></select></label></div>
+    <div className="dialog-fields"><label>Produk<select name="product" required defaultValue={draft?.product ?? ""}><option value="" disabled>Pilih produk</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label><label>Jumlah<input name="quantity" type="number" min={1} defaultValue={draft?.quantity ?? 24} required /></label><label>Ukuran<select name="size" defaultValue={draft?.size ?? "L"}><option>S</option><option>M</option><option>L</option><option>XL</option><option>Custom</option></select></label><label>Metode penerimaan<select name="delivery" defaultValue={draft?.delivery ?? "Ambil Sendiri"}><option>Ambil Sendiri</option><option>Antar Alamat</option></select></label><label>Spesifikasi desain<textarea name="specification" rows={3} maxLength={150} defaultValue={draft?.specification ?? ""} /></label></div>
   );
 }
 
