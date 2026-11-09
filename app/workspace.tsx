@@ -1076,9 +1076,9 @@ function OrdersTable({ orders, onAction }: { orders: Order[]; onAction: (order: 
 function CatalogPage({ products, onOrder }: { products: Product[]; onOrder: () => void }) {
   return (
     <>
-      <div className="page-heading"><div><h1>Katalog Produk</h1><p>Produk CV Jogja Konveksi</p></div><span className="user-id">Pelanggan</span></div>
-      <div className="metrics metrics-three compact-metrics"><MetricCard label="Nomor Produk" value={String(products.length).padStart(2, "0")} /><MetricCard label="Kategori Produk" value="Konveksi" /><MetricCard label="Metode Pesanan" value="Online" /></div>
-      <section className="product-grid">{products.map((product) => <article className="catalog-card" key={product.id}><div className="product-placeholder" aria-hidden="true"><span>{product.name.slice(0, 1)}</span></div><h2>{product.name}</h2><p>{product.category} • {product.material}</p><strong>{formatCurrency(product.price)}</strong><button className="button button-soft" onClick={onOrder} type="button">Pilih produk</button></article>)}</section>
+      <div className="page-heading customer-page-heading"><div><h1>Katalog Produk</h1></div><span className="user-id">Pelanggan</span></div>
+      <div className="metrics metrics-three compact-metrics customer-catalog-metrics"><MetricCard label="Nomor Produk" value={String(products.length).padStart(2, "0")} /><MetricCard label="Kategori Produk" value="Konveksi" /><MetricCard label="Metode Pesanan" value="Online" /></div>
+      <section className="product-grid customer-catalog-grid">{products.map((product) => <article className="catalog-card customer-catalog-card" data-product-id={product.id} key={product.id}><h2>{product.name} - {product.id}</h2><div className="product-placeholder customer-product-image" aria-hidden="true" /><p>{product.category} • {product.material}</p><strong>{formatCurrency(product.price)}</strong><button className="button button-primary" onClick={onOrder} type="button">Pilih produk</button></article>)}</section>
     </>
   );
 }
@@ -1091,23 +1091,32 @@ function CreateOrderPage({ products, onCreate }: { products: Product[]; onCreate
   const [specification, setSpecification] = useState("");
   return (
     <>
-      <div className="page-heading"><div><h1>Buat Pesanan</h1><p>Detail pesanan produk baru</p></div></div>
-      <Panel title="Detail pesanan produk baru">
-        <form className="order-builder" onSubmit={(event) => {
+      <div className="page-heading customer-page-heading"><div><h1>Buat Pesanan</h1></div><span className="user-id">Pelanggan</span></div>
+      <h2 className="customer-section-title">Detail pesanan produk baru</h2>
+      <form className="order-builder customer-order-builder" onSubmit={(event) => {
           event.preventDefault();
           if (!product || Number(quantity) < 1) return;
           onCreate({ product, quantity: Number(quantity), size, delivery, specification });
         }}>
-          <div className="order-fields">
+          <div className="order-fields customer-order-fields">
             <label>Produk<select required value={product} onChange={(event) => setProduct(event.target.value)}><option value="" disabled>Pilih produk</option>{products.map((item) => <option key={item.id} value={item.id}>{item.name} — {formatCurrency(item.price)}</option>)}</select></label>
             <label>Spesifikasi/Desain custom<textarea rows={3} maxLength={150} value={specification} onChange={(event) => setSpecification(event.target.value)} placeholder="Tuliskan detail desain atau ukuran logo" /></label>
             <label>Ukuran<select value={size} onChange={(event) => setSize(event.target.value)}><option>S</option><option>M</option><option>L</option><option>XL</option><option>Custom</option></select></label>
             <label>Jumlah<input type="number" value={quantity} min={1} onChange={(event) => setQuantity(event.target.value)} required /></label>
             <label>Metode Penerimaan<select value={delivery} onChange={(event) => setDelivery(event.target.value)}><option>Ambil Sendiri</option><option>Antar Alamat</option></select></label>
+            <button className="button button-primary customer-order-submit" type="submit" disabled={!products.length}>Konfirmasi Pesanan <span aria-hidden="true">→</span></button>
           </div>
-          <div className="order-summary"><h3>Ringkasan pesanan</h3><p>{products.length} produk tersedia</p><p>Harga menyesuaikan produk dan jumlah yang dipilih.</p><button className="button button-primary" type="submit" disabled={!products.length}>Konfirmasi Pesanan</button></div>
-        </form>
-      </Panel>
+          <div className="customer-order-products">
+            {products.map((item) => (
+              <article className="customer-order-product" data-product-id={item.id} key={item.id}>
+                <h3>{item.name}</h3>
+                <div className="product-placeholder customer-order-product-image" aria-hidden="true" />
+                <strong>{formatCurrency(item.price)}</strong>
+                <button className="button button-primary" type="button" onClick={() => setProduct(item.id)}>Pilih produk</button>
+              </article>
+            ))}
+          </div>
+      </form>
     </>
   );
 }
@@ -1116,10 +1125,26 @@ function PaymentPage({ orders, onPay }: { orders: Order[]; onPay: (id: string, r
   const [files, setFiles] = useState<Record<string, string>>({});
   return (
     <>
-      <div className="page-heading"><div><h1>Pembayaran</h1><p>Riwayat dan status pembayaran</p></div></div>
-      <Panel title="Daftar pembayaran">
-        <p className="panel-subtitle">Pilih file bukti. Saat ini server menyimpan nama file sebagai referensi, belum mengunggah isi file.</p>
-        <div className="table-scroll"><table><thead><tr><th>ID PESANAN</th><th>TOTAL</th><th>STATUS PEMBAYARAN</th><th>BUKTI / AKSI</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td><strong>{order.id}</strong></td><td>{formatCurrency(order.total)}</td><td><span className="status-pill">{order.payment}</span></td><td><div className="payment-upload"><label className="file-picker">Pilih bukti<input type="file" accept="image/*,.pdf" onChange={(event) => setFiles((current) => ({ ...current, [order.id]: event.target.files?.[0]?.name ?? "" }))} /></label>{files[order.id] && <small>{files[order.id]}</small>}<button className="button button-soft" disabled={!files[order.id] || order.status !== "Menunggu Pembayaran"} onClick={() => onPay(order.id, files[order.id])} type="button">Kirim bukti</button></div></td></tr>)}</tbody></table></div>
+      <div className="page-heading customer-page-heading"><div><h1>Pembayaran</h1></div><span className="user-id">Pelanggan</span></div>
+      <div className="metrics metrics-three compact-metrics customer-payment-metrics">
+        <MetricCard label="Total Pesanan" value={String(orders.length)} />
+        <MetricCard label="Belum dibayar" value={String(orders.filter((order) => order.status === "Menunggu Pembayaran").length)} />
+        <MetricCard label="Dalam Proses" value={String(orders.filter((order) => order.status !== "Menunggu Pembayaran").length)} />
+      </div>
+      <Panel title="Daftar Pesanan" action={<span className="customer-payment-hint">Unggah bukti pembayaran untuk pesanan aktif</span>}>
+        <div className="customer-payment-list">{orders.map((order) => (
+          <article className="customer-payment-row" key={order.id}>
+            <div className="customer-payment-order"><strong>{order.id}</strong><span>{order.product}</span></div>
+            <strong className="customer-payment-total">{formatCurrency(order.total)}</strong>
+            <span className="status-pill">{order.payment}</span>
+            <div className="payment-upload customer-payment-upload">
+              <label className="file-picker">Pilih bukti<input type="file" accept="image/*,.pdf" onChange={(event) => setFiles((current) => ({ ...current, [order.id]: event.target.files?.[0]?.name ?? "" }))} /></label>
+              {files[order.id] && <small>{files[order.id]}</small>}
+              <button className="button button-primary" disabled={!files[order.id] || order.status !== "Menunggu Pembayaran"} onClick={() => onPay(order.id, files[order.id])} type="button">Kirim bukti</button>
+            </div>
+          </article>
+        ))}</div>
+        <p className="panel-subtitle customer-payment-note">Server menyimpan nama file sebagai referensi, belum mengunggah isi file.</p>
       </Panel>
     </>
   );
@@ -1131,9 +1156,10 @@ function ChangeRequestPage({ orders }: { orders: Order[] }) {
   const [saving, setSaving] = useState(false);
   return (
     <>
-      <div className="page-heading"><div><h1>Perubahan Pesanan</h1><p>Ajukan perubahan untuk pesanan aktif</p></div></div>
-      <Panel title="Ajukan perubahan">
-        {sent ? <p className="success-message">Permintaan perubahan berhasil dikirim.</p> : <form className="simple-form" onSubmit={async (event) => {
+      <div className="page-heading customer-page-heading"><div><h1>Perubahan Pesanan</h1></div><span className="user-id">Pelanggan</span></div>
+      <div className="customer-change-layout">
+        <Panel title="Ajukan perubahan">
+          {sent ? <p className="success-message">Permintaan perubahan berhasil dikirim.</p> : <form className="simple-form customer-change-form" onSubmit={async (event) => {
           event.preventDefault();
           setSaving(true);
           setMessage("");
@@ -1158,7 +1184,11 @@ function ChangeRequestPage({ orders }: { orders: Order[] }) {
           {message && <p className="auth-error" role="alert">{message}</p>}
           <button className="button button-primary" type="submit" disabled={saving || !orders.length}>{saving ? "Mengirim..." : "Kirim Permintaan"}</button>
         </form>}
-      </Panel>
+        </Panel>
+        <div className="customer-store-photo customer-change-photo">
+          <Image src="/konveksi-store.png" alt="Toko Jogja Konveksi" width={335} height={704} priority />
+        </div>
+      </div>
     </>
   );
 }
@@ -1214,8 +1244,15 @@ function FeedbackPage({ role, orders }: { role: Role; orders: Order[] }) {
   }
   return (
     <>
-      <div className="page-heading"><div><h1>Kritik & Saran</h1><p>Masukan pelanggan</p></div></div>
-      <Panel title="Kirim kritik & saran">{sent ? <p className="success-message">Masukan berhasil dikirim.</p> : <form className="simple-form" onSubmit={async (event) => {
+      <div className="page-heading customer-page-heading"><div><h1>Kritik dan saran</h1></div><span className="user-id">Pelanggan</span></div>
+      <div className="customer-feedback-layout">
+        <div className="customer-feedback-content">
+          <p className="customer-feedback-intro">Masukkan dan penilaian</p>
+          <div className="customer-feedback-summary">
+            <article><span>Rating Produk</span><strong>5/5</strong><span className="customer-stars" aria-label="5 dari 5 bintang">★ ★ ★ ★ ★</span></article>
+            <article><span>Ulasan Dikirim</span><strong>{feedback.length}</strong></article>
+          </div>
+          <Panel title="Tulis Ulasan">{sent ? <p className="success-message">Masukan berhasil dikirim.</p> : <form className="simple-form customer-feedback-form" onSubmit={async (event) => {
         event.preventDefault();
         setError("");
         const form = new FormData(event.currentTarget);
@@ -1238,7 +1275,12 @@ function FeedbackPage({ role, orders }: { role: Role; orders: Order[] }) {
         <label>Masukan<textarea name="content" required rows={3} /></label>
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button className="button button-primary" type="submit">Kirim Masukan</button>
-      </form>}</Panel>
+          </form>}</Panel>
+        </div>
+        <div className="customer-store-photo customer-feedback-photo">
+          <Image src="/konveksi-store.png" alt="Toko Jogja Konveksi" width={335} height={704} priority />
+        </div>
+      </div>
     </>
   );
 }
