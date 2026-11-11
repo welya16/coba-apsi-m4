@@ -6,11 +6,16 @@ export async function GET() {
   return runApi(async () => {
     const user = await requireUser();
     requireRole(user, ["owner"]);
-    const [orderCount, customerCount, payments, laporan] = await Promise.all([
+    const [orderCount, customerCount, payments, laporan, aktivitas] = await Promise.all([
       prisma.pesanan.count(),
       prisma.pelanggan.count(),
       prisma.pembayaran.aggregate({ _sum: { jumlah_bayar: true } }),
       prisma.laporan.findMany({ orderBy: [{ periode_tahun: "desc" }, { periode_bulan: "desc" }] }),
+      prisma.aktivitas_owner.findMany({
+        where: { id_akun: user.id_akun },
+        include: { laporan: true },
+        orderBy: { id_laporan: "desc" },
+      }),
     ]);
     return {
       data: {
@@ -20,6 +25,7 @@ export async function GET() {
           total_pembayaran: payments._sum.jumlah_bayar ?? 0,
         },
         laporan,
+        aktivitas,
       },
     };
   });

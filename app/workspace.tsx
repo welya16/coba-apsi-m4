@@ -58,6 +58,13 @@ const roles: Role[] = ["Pelanggan", "Admin", "Owner", "Produksi", "Pengiriman"];
 type ApiUser = { id_akun: string; username: string; nama_lengkap: string; role: string };
 type ApiRecord = Record<string, unknown>;
 
+const productImages: Record<string, string> = {
+  "PRD-001": "/images/polo-shirt.jpeg",
+  "PRD-002": "/images/jacket.jpeg",
+  "PRD-003": "/images/kaos.jpeg",
+  "PRD-004": "/images/kemeja.jpeg",
+};
+
 const navigation: Record<Role, string[]> = {
   Pelanggan: [
     "Dashboard",
@@ -851,22 +858,29 @@ function Workspace() {
 
   function renderOwnerDashboard() {
     const totalOrders = orders.reduce((sum, order) => sum + order.total, 0);
+    const totalQuantity = orders.reduce((sum, order) => sum + order.quantity, 0);
+    const verifiedPayments = orders.filter((order) => order.payment === "Terverifikasi");
+    const pendingPayments = orders.filter((order) => order.payment === "Menunggu Verifikasi");
     return (
-      <>
-        <section className="owner-greeting"><div><h1>Hallo, Owner!</h1><strong>{userName}</strong></div><b>{apiUser?.id_akun}</b></section>
+      <div className="owner-dashboard">
+        <section className="owner-greeting"><div><h1>Hallo, Owner!</h1><strong>{userName}</strong></div><b>{userName} &nbsp; {apiUser?.id_akun}</b></section>
         <div className="metrics metrics-three owner-metrics">
-          <MetricCard label="Pesanan" value={String(orders.length)} /><MetricCard label="Produk" value={String(products.length)} /><MetricCard label="Total Pesanan" value={formatCurrency(totalOrders)} />
+          <MetricCard label="Pesanan" value={String(orders.length)} /><MetricCard label="Produk" value={String(totalQuantity)} /><MetricCard label="Total Pesanan" value={formatCurrency(totalOrders)} />
         </div>
-        <Panel title="Laporan" action={<div className="report-actions"><select aria-label="Periode laporan" defaultValue="Oktober 2026"><option>Oktober 2026</option><option>September 2026</option></select><button className="button button-soft" onClick={() => window.print()} type="button">Cetak Laporan</button></div>}>
-          <p className="panel-subtitle">LAP-001 | Hanya Baca</p>
-          <div className="table-scroll"><table><thead><tr><th>NAMA / ID</th><th>KETERANGAN</th><th>AKSI</th></tr></thead>
+        <section className="owner-dashboard-report">
+          <div className="owner-report-heading">
+            <div><h2>Laporan</h2><p>LAP-001 | Hanya Baca</p></div>
+            <div className="report-actions"><select aria-label="Periode laporan" defaultValue="Oktober 2026"><option>Oktober 2026</option><option>September 2026</option></select><button className="button button-soft" onClick={() => window.print()} type="button">▣ &nbsp; Cetak Laporan</button></div>
+          </div>
+          <div className="owner-table-scroll"><table className="owner-table"><thead><tr><th>NAMA / ID</th><th>KETERANGAN</th><th>AKSI</th></tr></thead>
             <tbody>
-              <tr><td><strong>Pesanan saat ini</strong><small>{orders.length} pesanan dari database</small></td><td><strong>{formatCurrency(totalOrders)}</strong><small>Total nilai pesanan</small></td><td><button className="button button-soft" onClick={() => setSection("Rekap Pesanan")} type="button">Lihat</button></td></tr>
-              <tr><td><strong>Katalog produk</strong><small>{products.length} produk terdaftar</small></td><td><strong>Produk</strong><small>Data katalog</small></td><td><button className="button button-soft" onClick={() => setSection("Laporan Penjualan")} type="button">Lihat</button></td></tr>
-              <tr><td><strong>Pembayaran</strong><small>{orders.filter((order) => order.payment !== "Belum dibayar").length} transaksi terkait pesanan</small></td><td><strong>Status pembayaran</strong><small>{orders.filter((order) => order.payment === "Terverifikasi").length} terverifikasi</small></td><td><button className="button button-soft" onClick={() => setSection("Laporan Pembayaran")} type="button">Lihat</button></td></tr>
-            </tbody></table></div>
-        </Panel>
-      </>
+              <tr><td><strong>Laporan penjualan LAP-001</strong><small>10/2026</small></td><td><strong>{formatCurrency(totalOrders)}</strong><small>20 Okt 2026</small></td><td><button className="owner-mini-button" onClick={() => setSection("Laporan Penjualan")} type="button">Lihat</button></td></tr>
+              <tr><td><strong>Rekap pemesanan</strong><small>{orders.length} pesanan • {totalQuantity} pcs</small></td><td><strong>Status Pesanan</strong><small>{orders.filter((order) => order.status === "Selesai").length} Selesai • {orders.filter((order) => order.status === "Dikirim").length} Dikirim • {orders.filter((order) => order.status.toLowerCase().includes("proses")).length} Diproses • {pendingPayments.length} Menunggu Verifikasi • {orders.filter((order) => order.status === "Menunggu Pembayaran").length} Menunggu Pembayaran</small></td><td><button className="owner-mini-button" onClick={() => setSection("Rekap Pesanan")} type="button">Lihat</button></td></tr>
+              <tr><td><strong>Laporan pembayaran</strong><small>{orders.filter((order) => order.paymentId).length} transaksi</small></td><td><strong>{verifiedPayments.length} Pembayaran • {formatCurrency(verifiedPayments.reduce((sum, order) => sum + order.total, 0))}</strong><small>{verifiedPayments.length} Terverifikasi • {pendingPayments.length} BYR menunggu pembayaran</small></td><td><button className="owner-mini-button" onClick={() => setSection("Laporan Pembayaran")} type="button">Lihat</button></td></tr>
+            </tbody>
+          </table></div>
+        </section>
+      </div>
     );
   }
 
@@ -988,7 +1002,15 @@ function Workspace() {
     }
     if (role === "Owner") {
       if (section === "Dashboard Owner") return renderOwnerDashboard();
-      return <ReportPage section={section} onOpen={(message) => setNotice(message)} />;
+      return <OwnerReportPage
+        section={section}
+        orders={orders}
+        products={products}
+        userName={userName}
+        accountId={apiUser?.id_akun ?? ""}
+        onBack={() => setSection("Dashboard Owner")}
+        onOpen={(message) => setNotice(message)}
+      />;
     }
     if (role === "Pelanggan") {
       if (section === "Dashboard") return renderCustomerDashboard();
@@ -1078,7 +1100,7 @@ function CatalogPage({ products, onOrder }: { products: Product[]; onOrder: () =
     <>
       <div className="page-heading customer-page-heading"><div><h1>Katalog Produk</h1></div><span className="user-id">Pelanggan</span></div>
       <div className="metrics metrics-three compact-metrics customer-catalog-metrics"><MetricCard label="Nomor Produk" value={String(products.length).padStart(2, "0")} /><MetricCard label="Kategori Produk" value="Konveksi" /><MetricCard label="Metode Pesanan" value="Online" /></div>
-      <section className="product-grid customer-catalog-grid">{products.map((product) => <article className="catalog-card customer-catalog-card" data-product-id={product.id} key={product.id}><h2>{product.name} - {product.id}</h2><div className="product-placeholder customer-product-image" aria-hidden="true" /><p>{product.category} • {product.material}</p><strong>{formatCurrency(product.price)}</strong><button className="button button-primary" onClick={onOrder} type="button">Pilih produk</button></article>)}</section>
+      <section className="product-grid customer-catalog-grid">{products.map((product) => <article className="catalog-card customer-catalog-card" data-product-id={product.id} key={product.id}><h2>{product.name} - {product.id}</h2><div className="product-placeholder customer-product-image">{productImages[product.id] && <Image src={productImages[product.id]} alt={product.name} width={420} height={260} />}</div><p>{product.category} • {product.material}</p><strong>{formatCurrency(product.price)}</strong><button className="button button-primary" onClick={onOrder} type="button">Pilih produk</button></article>)}</section>
     </>
   );
 }
@@ -1110,7 +1132,7 @@ function CreateOrderPage({ products, onCreate }: { products: Product[]; onCreate
             {products.map((item) => (
               <article className="customer-order-product" data-product-id={item.id} key={item.id}>
                 <h3>{item.name}</h3>
-                <div className="product-placeholder customer-order-product-image" aria-hidden="true" />
+                <div className="product-placeholder customer-order-product-image">{productImages[item.id] && <Image src={productImages[item.id]} alt={item.name} width={220} height={220} />}</div>
                 <strong>{formatCurrency(item.price)}</strong>
                 <button className="button button-primary" type="button" onClick={() => setProduct(item.id)}>Pilih produk</button>
               </article>
@@ -1329,30 +1351,213 @@ function NotificationPage({ role }: { role: Role }) {
   );
 }
 
-function ReportPage({ section, onOpen }: { section: string; onOpen: (message: string) => void }) {
-  const [report, setReport] = useState<{ summary: ApiRecord; laporan: ApiRecord[] } | null>(null);
+function OwnerReportPage({
+  section,
+  orders,
+  products,
+  userName,
+  accountId,
+  onBack,
+  onOpen,
+}: {
+  section: string;
+  orders: Order[];
+  products: Product[];
+  userName: string;
+  accountId: string;
+  onBack: () => void;
+  onOpen: (message: string) => void;
+}) {
+  const [report, setReport] = useState<{ summary: ApiRecord; laporan: ApiRecord[]; aktivitas: ApiRecord[] } | null>(null);
+  const [payments, setPayments] = useState<ApiRecord[]>([]);
   const [error, setError] = useState("");
+  const [period, setPeriod] = useState("Oktober 2026");
+  const [statusFilter, setStatusFilter] = useState("Semua");
+  const [orderType, setOrderType] = useState("Semua");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [printPrompt, setPrintPrompt] = useState(true);
+
   useEffect(() => {
-    apiRequest<{ data: { summary: ApiRecord; laporan: ApiRecord[] } }>("/api/reports")
+    apiRequest<{ data: { summary: ApiRecord; laporan: ApiRecord[]; aktivitas: ApiRecord[] } }>("/api/reports")
       .then((result) => setReport(result.data))
       .catch((loadError: unknown) => setError(loadError instanceof Error ? loadError.message : "Gagal memuat laporan."));
+    apiRequest<{ data: ApiRecord[] }>("/api/payments")
+      .then((result) => setPayments(result.data))
+      .catch((loadError: unknown) => setError(loadError instanceof Error ? loadError.message : "Gagal memuat data pembayaran."));
   }, []);
+
+  const totalOrders = orders.reduce((sum, order) => sum + order.total, 0);
+  const totalQuantity = orders.reduce((sum, order) => sum + order.quantity, 0);
+  const totalPaid = payments.reduce((sum, item) => sum + Number(item.jumlah_bayar ?? 0), 0);
+  const verifiedPayments = payments.filter((item) => String(item.status_pembayaran ?? "").toLowerCase() === "terverifikasi");
+  const waitingPayments = payments.filter((item) => String(item.status_pembayaran ?? "").toLowerCase().includes("menunggu verifikasi"));
+  const verifiedTotal = verifiedPayments.reduce((sum, item) => sum + Number(item.jumlah_bayar ?? 0), 0);
+  const waitingTotal = waitingPayments.reduce((sum, item) => sum + Number(item.jumlah_bayar ?? 0), 0);
+  const reports = report?.laporan ?? [];
+  const latestReport = reports[0];
+  const salesTotal = Number(latestReport?.total_pendapatan ?? totalOrders);
+  const latestReportId = String(latestReport?.id_laporan ?? "—");
+  const parseOrderDate = (value: string) => {
+    const [day, month, year] = value.split("/").map(Number);
+    if (!day || !month || !year) return null;
+    return new Date(year, month - 1, day);
+  };
+  const selectedMonth = new Map([["Januari", 0], ["Februari", 1], ["Maret", 2], ["April", 3], ["Mei", 4], ["Juni", 5], ["Juli", 6], ["Agustus", 7], ["September", 8], ["Oktober", 9], ["November", 10], ["Desember", 11]]).get(period.split(" ")[0]);
+  const selectedYear = Number(period.split(" ")[1]);
+  const visibleOrders = orders.filter((order) => {
+    const orderDate = parseOrderDate(order.date);
+    const matchesStatus = statusFilter === "Semua" || order.status === statusFilter;
+    const matchesType = orderType === "Semua" || order.product.toLowerCase().includes(orderType.toLowerCase());
+    const matchesPeriod = selectedMonth === undefined || !orderDate || (orderDate.getMonth() === selectedMonth && orderDate.getFullYear() === selectedYear);
+    const matchesFrom = !fromDate || !orderDate || orderDate >= new Date(`${fromDate}T00:00:00`);
+    const matchesTo = !toDate || !orderDate || orderDate <= new Date(`${toDate}T23:59:59`);
+    return matchesStatus && matchesType && matchesPeriod && matchesFrom && matchesTo;
+  });
+  const orderStatuses = [...new Set(orders.map((order) => order.status).filter(Boolean))];
+  const orderById = new Map(orders.map((order) => [order.id, order]));
+  const activities = report?.aktivitas ?? [];
+  const paymentDate = (value: unknown) => {
+    if (!value) return "—";
+    const date = new Date(String(value));
+    return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric" }).format(date);
+  };
+  const pageHeader = (
+    <header className="owner-page-heading">
+      <h1>{section}</h1>
+      <button className="owner-back-button" type="button" onClick={onBack}><span aria-hidden="true">←</span> Kembali</button>
+    </header>
+  );
+  const printConfirmation = (
+    <footer className="owner-print-confirmation">
+      <strong>Cetak Laporan?</strong>
+      {printPrompt ? (
+        <div>
+          <button type="button" onClick={() => { setPrintPrompt(false); window.print(); }}>Ya, Cetak</button>
+          <button type="button" onClick={() => setPrintPrompt(false)}>Tidak</button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setPrintPrompt(true)}>Cetak Laporan</button>
+      )}
+    </footer>
+  );
+
+  if (section === "Rekap Pesanan") {
+    return (
+      <div className="owner-report-page owner-order-summary-page">
+        {pageHeader}
+        <div className="owner-report-stats owner-order-stats">
+          <article><span>Pesanan</span><strong>{orders.length}</strong></article>
+          <article><span>Total Produk</span><strong>{totalQuantity}</strong></article>
+          <article><span>Total Pesanan</span><strong>{formatCurrency(totalOrders)}</strong></article>
+        </div>
+        <section className="owner-report-card owner-order-report">
+          <div className="owner-report-tools">
+            <select aria-label="Periode rekap" value={period} onChange={(event) => setPeriod(event.target.value)}><option>Semua</option><option>Oktober 2026</option><option>September 2026</option><option>Agustus 2026</option></select>
+            <select aria-label="Status pesanan" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>Semua</option>{orderStatuses.map((status) => <option key={status}>{status}</option>)}</select>
+            <button type="button" onClick={() => setFilterOpen(true)}>Filter Rekap</button>
+            <button type="button" onClick={() => window.print()}>Cetak Rekap</button>
+          </div>
+          {error && <p className="owner-report-error" role="alert">{error}</p>}
+          <div className="owner-table-scroll"><table className="owner-table"><thead><tr><th>PESANAN</th><th>PRODUK</th><th>NILAI PESANAN</th><th>STATUS</th></tr></thead>
+            <tbody>{visibleOrders.map((order) => <tr key={order.id}><td><strong>{order.id}</strong><small>{order.customer} • {order.date}</small></td><td>{order.product}<small>{order.quantity} pcs</small></td><td>{formatCurrency(order.total)}</td><td>{order.status}</td></tr>)}
+              {!visibleOrders.length && <tr><td colSpan={4}>Tidak ada pesanan untuk filter yang dipilih.</td></tr>}
+            </tbody></table></div>
+          <div className="owner-report-footnote">{orders.length} pesanan • {products.length} produk terdaftar • {totalQuantity} total pcs</div>
+          <div className="owner-operations-strip"><strong>PRODUKSI</strong><strong>PENGIRIMAN</strong><span>{orders.filter((order) => ["Jahit", "Proses", "Selesai"].includes(order.status)).length} pesanan sedang/selesai produksi</span><span>{orders.filter((order) => ["Dikirim", "Dalam Perjalanan", "Diterima"].includes(order.status)).length} dalam proses pengiriman</span></div>
+          {printConfirmation}
+        </section>
+        {filterOpen && <div className="owner-filter-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setFilterOpen(false); }}>
+          <section className="owner-filter-dialog" role="dialog" aria-modal="true" aria-labelledby="owner-filter-title">
+            <h2 id="owner-filter-title">Filter Rekap</h2>
+            <div className="owner-filter-period"><strong>Periode</strong><label>Dari tanggal<input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></label><label>Sampai tanggal<input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} /></label></div>
+            <label>Status Pesanan<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>Semua</option>{orderStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
+            <label>Jenis Laporan<select value={orderType} onChange={(event) => setOrderType(event.target.value)}><option>Semua</option>{products.map((product) => <option key={product.id}>{product.name}</option>)}</select></label>
+            <div className="owner-filter-result">Hasil <small>{visibleOrders.length} pesanan ditampilkan</small></div>
+            <div className="owner-filter-actions"><button type="button" onClick={() => { setStatusFilter("Semua"); setOrderType("Semua"); setPeriod("Semua"); setFromDate(""); setToDate(""); }}>Reset</button><button type="button" onClick={() => setFilterOpen(false)}>Batal</button><button type="button" onClick={() => setFilterOpen(false)}>Terapkan Filter</button></div>
+          </section>
+        </div>}
+      </div>
+    );
+  }
+
+  if (section === "Laporan Penjualan") {
+    return (
+      <div className="owner-report-page owner-sales-page">
+        {pageHeader}
+        <div className="owner-report-stats owner-sales-stats">
+          <article><span>Pendapatan {latestReportId}</span><strong>{formatCurrency(salesTotal)}</strong></article>
+          <article><span>Periode</span><strong>10/2026</strong></article>
+          <article><span>Tanggal Laporan</span><strong>{latestReport ? paymentDate(latestReport.tgl_laporan) : "—"}</strong></article>
+        </div>
+        <section className="owner-report-card">
+          <div className="owner-report-tools"><select aria-label="Periode laporan penjualan" value={period} onChange={(event) => setPeriod(event.target.value)}><option>Semua</option><option>Oktober 2026</option><option>September 2026</option></select><button type="button" onClick={() => window.print()}>Pratinjau Cetak</button></div>
+          <p className="owner-report-subtitle">ID Laporan: {latestReportId}</p>
+          {error && <p className="owner-report-error" role="alert">{error}</p>}
+          <div className="owner-table-scroll"><table className="owner-table"><thead><tr><th>KETERANGAN</th><th>NILAI</th><th>SUMBER</th></tr></thead><tbody>
+            <tr><td>Total nilai {orders.length} pesanan</td><td>{formatCurrency(totalOrders)}</td><td>Rekap pesanan</td></tr>
+            <tr><td>Total {payments.length} pembayaran</td><td>{formatCurrency(totalPaid)}</td><td>Rekap pembayaran</td></tr>
+            <tr><td>Pembayaran terverifikasi</td><td>{formatCurrency(verifiedTotal)}</td><td>{verifiedPayments.length} pembayaran</td></tr>
+            <tr><td>Menunggu verifikasi</td><td>{formatCurrency(waitingTotal)}</td><td>{waitingPayments.length} pembayaran</td></tr>
+          </tbody></table></div>
+          <p className="owner-report-date">Tanggal laporan · {latestReport ? paymentDate(latestReport.tgl_laporan) : "Belum tersedia"}</p>
+          {printConfirmation}
+        </section>
+      </div>
+    );
+  }
+
+  if (section === "Laporan Pembayaran") {
+    return (
+      <div className="owner-report-page owner-payments-page">
+        {pageHeader}
+        <div className="owner-report-stats owner-payment-stats">
+          <article><span>Total Pembayaran</span><strong>{formatCurrency(totalPaid)}</strong></article>
+          <article><span>{verifiedPayments.length} Terverifikasi</span><strong>{formatCurrency(verifiedTotal)}</strong></article>
+          <article><span>{waitingPayments.length} Menunggu</span><strong>{formatCurrency(waitingTotal)}</strong></article>
+        </div>
+        <section className="owner-report-card">
+          <div className="owner-report-tools"><select aria-label="Periode pembayaran" value={period} onChange={(event) => setPeriod(event.target.value)}><option>Semua</option><option>Oktober 2026</option><option>September 2026</option></select><select aria-label="Status pembayaran" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>Semua</option><option>Terverifikasi</option><option>Menunggu Verifikasi</option></select><button type="button" onClick={() => window.print()}>Cetak Laporan</button></div>
+          {error && <p className="owner-report-error" role="alert">{error}</p>}
+          <div className="owner-table-scroll"><table className="owner-table"><thead><tr><th>PESANAN</th><th>TANGGAL / JENIS</th><th>NOMINAL</th><th>STATUS</th><th>BUKTI</th></tr></thead>
+            <tbody>{payments.filter((payment) => statusFilter === "Semua" || String(payment.status_pembayaran ?? "") === statusFilter).map((payment) => {
+              const orderId = String(payment.id_pesanan ?? "");
+              const order = orderById.get(orderId);
+              return <tr key={String(payment.id_pembayaran)}><td><strong>{String(payment.id_pembayaran)}</strong><small>{orderId} • {order?.customer ?? "Pelanggan"}</small></td><td>{paymentDate(payment.tgl_bayar)}<small>{String(payment.jenis_bayar ?? "—")} · {String(payment.metode_bayar ?? "—")}</small></td><td>{formatCurrency(Number(payment.jumlah_bayar ?? 0))}</td><td><span className="owner-payment-status">{String(payment.status_pembayaran ?? "—")}</span></td><td>{String(payment.bukti_bayar ?? "—")}</td></tr>;
+            })}
+              {!payments.length && !error && <tr><td colSpan={5}>Belum ada data pembayaran.</td></tr>}
+            </tbody></table></div>
+          <div className="owner-payment-revenue">Pendapatan {latestReportId} · {formatCurrency(salesTotal)}</div>
+          {printConfirmation}
+        </section>
+      </div>
+    );
+  }
+
+  const firstActivity = activities[0] as ApiRecord | undefined;
+  const firstActivityReport = firstActivity?.laporan as ApiRecord | undefined;
   return (
-    <>
-      <div className="page-heading"><div><h1>{section}</h1><p>CV Jogja Konveksi / Owner</p></div><button className="button button-soft" onClick={() => window.print()} type="button">Cetak Laporan</button></div>
-      {error && <p className="auth-error" role="alert">{error}</p>}
-      <Panel title={section}>
-        <p className="panel-subtitle">Ringkasan basis data · {String(report?.summary.pesanan ?? "—")} pesanan · {String(report?.summary.pelanggan ?? "—")} pelanggan · {formatCurrency(Number(report?.summary.total_pembayaran ?? 0))} pembayaran tercatat.</p>
-        <div className="table-scroll"><table><thead><tr><th>NAMA / ID</th><th>KETERANGAN</th><th>AKSI</th></tr></thead><tbody>
-          {(report?.laporan ?? []).map((item) => <tr key={String(item.id_laporan)}>
-            <td><strong>{String(item.id_laporan)}</strong><small>{String(item.periode_bulan)}/{String(item.periode_tahun)}</small></td>
-            <td>{formatCurrency(Number(item.total_pendapatan ?? 0))}</td>
-            <td><button className="button button-soft" onClick={() => onOpen(`Laporan ${String(item.id_laporan)} periode ${String(item.periode_bulan)}/${String(item.periode_tahun)}.`)} type="button">Lihat</button></td>
-          </tr>)}
-          {!report?.laporan.length && !error && <tr><td colSpan={3}>Belum ada laporan tersimpan.</td></tr>}
+    <div className="owner-report-page owner-activity-page">
+      {pageHeader}
+      <section className="owner-activity-summary">
+        <h2>{accountId} / {String(firstActivity?.id_laporan ?? latestReportId)}</h2>
+        <button className="owner-report-link" type="button" onClick={() => onOpen(`Laporan terkait ${String(firstActivity?.id_laporan ?? latestReportId)}.`)}>Lihat {String(firstActivity?.id_laporan ?? latestReportId)}</button>
+        <p>ID akun: {accountId} · {userName} <span>ID Laporan: {String(firstActivity?.id_laporan ?? latestReportId)}</span></p>
+      </section>
+      <section className="owner-report-card owner-activity-card">
+        <h2>Laporan Terkait</h2>
+        {error && <p className="owner-report-error" role="alert">{error}</p>}
+        <div className="owner-table-scroll"><table className="owner-table"><thead><tr><th>LAPORAN</th><th>PERIODE</th><th>PENDAPATAN</th><th>AKSES</th></tr></thead><tbody>
+          {activities.map((activity) => {
+            const linkedReport = activity.laporan as ApiRecord | undefined;
+            return <tr key={String(activity.id_laporan)}><td>{String(linkedReport?.id_laporan ?? activity.id_laporan)} · Laporan Penjualan</td><td>{String(linkedReport?.periode_bulan ?? "—")}/{String(linkedReport?.periode_tahun ?? "—")}</td><td>{formatCurrency(Number(linkedReport?.total_pendapatan ?? 0))}</td><td>Hanya Baca</td></tr>;
+          })}
+          {!activities.length && !error && <tr><td colSpan={4}>Belum ada aktivitas laporan untuk akun ini.</td></tr>}
         </tbody></table></div>
-      </Panel>
-    </>
+        <p className="owner-report-date">Tanggal laporan · {firstActivityReport ? paymentDate(firstActivityReport.tgl_laporan) : "—"}</p>
+      </section>
+    </div>
   );
 }
 
